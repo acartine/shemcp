@@ -1,0 +1,70 @@
+# Example configuration file for shemcp (MCP Shell Server)
+# Copy this to ~/.config/shemcp/config.toml and customize as needed
+
+[server]
+name = "mcp-shell-safe"
+version = "0.1.0"
+
+[directories]
+# Allowed working directories (paths will be expanded, ~ becomes home directory)
+allowed = [
+    "~/projects",
+    "~/workspace", 
+    "~/dev"
+]
+# Default working directory for commands
+default = "~/projects"
+
+[commands]
+# Regular expressions for allowed commands (case insensitive)
+allow = [
+    "^git(\\s|$)",         # Git commands
+    "^gh(\\s|$)",          # GitHub CLI
+    "^make(\\s|$)",        # Make build tool
+    "^npm(\\s|$)",         # Node package manager
+    "^yarn(\\s|$)",        # Yarn package manager
+    "^grep(\\s|$)",        # Search text
+    "^find(\\s|$)",        # Find files
+    "^ls(\\s|$)",          # List files
+    "^pwd(\\s|$)",         # Print working directory
+    "^echo(\\s|$)",        # Echo text
+    "^cat(\\s|$)",         # Display file contents
+    "^head(\\s|$)",        # Show file beginning
+    "^tail(\\s|$)",        # Show file end
+    "^curl(\\s|$)",        # HTTP client
+    "^wget(\\s|$)",        # Web downloader
+]
+
+# Regular expressions for explicitly denied commands (checked after allow list)
+deny = [
+    "^git\\s+push\\s+(origin\\s+)?(main|master)(\\s+.*)?$",  # Prevent push to main/master
+    "^rm\\s+-rf\\s+/",     # Prevent dangerous recursive deletes
+    "^sudo(\\s|$)",        # No privilege escalation
+    "^su(\\s|$)",          # No user switching
+]
+
+[limits]
+# Maximum time per command (1-300 seconds)
+timeout_seconds = 60
+
+# Maximum output size per stream in bytes (1KB - 10MB)
+max_output_bytes = 2000000
+
+[environment]
+# Environment variables to pass through to commands
+whitelist = [
+    "PATH",
+    "HOME", 
+    "USER",
+    "LANG",
+    "LC_ALL",
+    "TERM",
+    "SHELL"
+]
+
+[security]
+# Whether to allow runtime policy changes via shell_set_policy tool
+allow_runtime_policy_changes = true
+
+# Whether to enforce secure file permissions on config files (600/644)
+require_secure_permissions = false

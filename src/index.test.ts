@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   policy,
+  config,
   makeRegex,
   ensureCwd,
   buildCmdLine,
@@ -12,38 +13,21 @@ import {
 
 describe('MCP Shell Server', () => {
   describe('Policy Tests', () => {
-    beforeEach(() => {
-      // Reset policy to defaults
-      policy.allowedCwds = [
-        "/Users/cartine/brutus",
-        "/Users/cartine/chat",
-      ];
-      policy.defaultCwd = "/Users/cartine/chat";
-      policy.allow = [
-        /^git(\s|$)/i,
-        /^gh(\s|$)/i,
-        /^make(\s|$)/i,
-        /^grep(\s|$)/i,
-        /^sed(\s|$)/i,
-        /^jq(\s|$)/i,
-        /^aws(\s|$)/i,
-        /^az(\s|$)/i,
-        /^bash\s+-lc\s+/i,
-      ];
-      policy.deny = [
-        /^git\s+push(\s+.*)?\s+(origin\s+)?(main|master)(\s+.*)?$/i,
-        /^git\s+push\s*$/i,
-      ];
-      policy.timeoutMs = 60_000;
-      policy.maxBytes = 2_000_000;
-      policy.envWhitelist = ["PATH", "HOME", "LANG", "LC_ALL"];
-    });
+    // Note: Policy is now loaded from config files, so we test the loaded values
 
     it('should have correct default policy values', () => {
-      expect(policy.allowedCwds).toContain("/Users/cartine/chat");
-      expect(policy.defaultCwd).toBe("/Users/cartine/chat");
+      expect(policy.allowedCwds.some(dir => dir.includes("projects"))).toBe(true);
+      expect(policy.defaultCwd).toBeTruthy();
       expect(policy.timeoutMs).toBe(60_000);
       expect(policy.maxBytes).toBe(2_000_000);
+    });
+
+    it('should load configuration from config system', () => {
+      expect(config).toBeDefined();
+      expect(config.server.name).toBe('mcp-shell-safe');
+      expect(config.server.version).toBe('0.1.0');
+      expect(config.directories.allowed.length).toBeGreaterThan(0);
+      expect(config.commands.allow.length).toBeGreaterThan(0);
     });
 
     it('should create case-insensitive regex patterns', () => {
@@ -96,18 +80,20 @@ describe('MCP Shell Server', () => {
     });
 
     it('should accept authorized working directories', () => {
-      // Test with a non-existent but allowed subdirectory
-      expect(() => ensureCwd("/Users/cartine/chat/non-existent-test-dir-12345")).toThrow("cwd not accessible");
-      expect(() => ensureCwd("/Users/cartine/brutus/non-existent-test-dir-12345")).toThrow("cwd not accessible");
-      
-      // These should not throw "cwd not allowed" error
-      // They may or may not throw "cwd not accessible" depending on if dirs exist
-      try {
-        ensureCwd("/Users/cartine/chat");
-        // Directory exists and is accessible - that's OK
-      } catch (e: any) {
-        // Should only be accessibility error, not allowlist error
-        expect(e.message).toContain("cwd not accessible");
+      // Get the first allowed directory from config for testing
+      const allowedDir = policy.allowedCwds[0];
+      if (allowedDir) {
+        // Test with a non-existent but allowed subdirectory
+        expect(() => ensureCwd(allowedDir + "/non-existent-test-dir-12345")).toThrow("cwd not accessible");
+        
+        // Test the base directory (may exist or not)
+        try {
+          ensureCwd(allowedDir);
+          // Directory exists and is accessible - that's OK
+        } catch (e: any) {
+          // Should only be accessibility error, not allowlist error
+          expect(e.message).toContain("cwd not accessible");
+        }
       }
     });
   });
@@ -178,10 +164,18 @@ describe('MCP Shell Server', () => {
       expect(capabilities.tools).toBeDefined();
     });
 
-    it('should have correct server info', () => {
+    it('should have correct server info from config', () => {
       const serverInfo = server['_serverInfo'];
-      expect(serverInfo.name).toBe("mcp-shell-safe");
-      expect(serverInfo.version).toBe("0.1.0");
+      expect(serverInfo.name).toBe(config.server.name);
+      expect(serverInfo.version).toBe(config.server.version);
+    });
+
+    it('should convert config to policy correctly', () => {
+      expect(policy.allowedCwds).toEqual(config.directories.allowed);
+      expect(policy.defaultCwd).toBe(config.directories.default || null);
+      expect(policy.timeoutMs).toBe(config.limits.timeout_seconds * 1000);
+      expect(policy.maxBytes).toBe(config.limits.max_output_bytes);
+      expect(policy.envWhitelist).toEqual(config.environment.whitelist);
     });
   });
 });

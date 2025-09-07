@@ -8,6 +8,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { Config, ConfigLoader } from "./config/index.js";
 
 /** ---------- Policy (mutable at runtime) ---------- */
 export type Policy = {
@@ -22,31 +23,22 @@ export type Policy = {
 
 export const makeRegex = (s: string) => new RegExp(s, "i");
 
+// Load configuration from config files
+const config: Config = ConfigLoader.loadConfig();
+
+// Convert config to policy format
 export const policy: Policy = {
-  allowedCwds: [
-    "/Users/cartine/brutus",
-    "/Users/cartine/chat",
-  ],
-  defaultCwd: "/Users/cartine/chat",
-  allow: [
-    /^git(\s|$)/i,
-    /^gh(\s|$)/i,
-    /^make(\s|$)/i,
-    /^grep(\s|$)/i,
-    /^sed(\s|$)/i,
-    /^jq(\s|$)/i,
-    /^aws(\s|$)/i,
-    /^az(\s|$)/i,
-    /^bash\s+-lc\s+/i, // explicit: only bash -lc "..."
-  ],
-  deny: [
-    /^git\s+push(\s+.*)?\s+(origin\s+)?(main|master)(\s+.*)?$/i,
-    /^git\s+push\s*$/i, // force explicit branch/ref
-  ],
-  timeoutMs: 60_000,
-  maxBytes: 2_000_000,
-  envWhitelist: ["PATH", "HOME", "LANG", "LC_ALL"]
+  allowedCwds: config.directories.allowed,
+  defaultCwd: config.directories.default || null,
+  allow: config.commands.allow.map(makeRegex),
+  deny: config.commands.deny.map(makeRegex),
+  timeoutMs: config.limits.timeout_seconds * 1000,
+  maxBytes: config.limits.max_output_bytes,
+  envWhitelist: config.environment.whitelist
 };
+
+// Export the loaded config for inspection
+export { config };
 
 /** ---------- Helpers ---------- */
 export function ensureCwd(cwd: string) {
@@ -109,7 +101,7 @@ export async function execOnce(cmd: string, args: string[], cwd: string, timeout
 
 /** ---------- MCP server & tools ---------- */
 export const server = new Server(
-  { name: "mcp-shell-safe", version: "0.1.0" },
+  { name: config.server.name, version: config.server.version },
   { capabilities: { tools: {} } }
 );
 
