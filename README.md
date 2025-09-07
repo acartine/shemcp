@@ -4,16 +4,17 @@ A secure shell command execution server for the Model Context Protocol (MCP).
 
 ## Overview
 
-This MCP server provides sandboxed shell command execution with comprehensive security policies. It allows AI assistants to safely execute shell commands while enforcing strict access controls.
+This MCP server provides sandboxed shell command execution with comprehensive security policies. It allows AI assistants to safely execute shell commands while enforcing strict access controls through configurable TOML files.
 
 ## Features
 
-- **Command Allowlisting**: Only pre-approved commands can be executed
-- **Command Denylisting**: Explicitly block dangerous command patterns
-- **Working Directory Restrictions**: Limit execution to specific directories
-- **Environment Filtering**: Only pass through safe environment variables
-- **Resource Limits**: Configurable timeouts and output size caps
-- **Runtime Policy Updates**: Modify security policies on the fly
+- **📋 TOML Configuration**: Easy-to-edit configuration files with validation
+- **🔒 Command Allowlisting**: Only pre-approved commands can be executed
+- **🚫 Command Denylisting**: Explicitly block dangerous command patterns
+- **📁 Working Directory Restrictions**: Limit execution to specific directories
+- **🌍 Environment Filtering**: Only pass through safe environment variables
+- **⏱️ Resource Limits**: Configurable timeouts and output size caps
+- **🔧 Runtime Policy Updates**: Modify security policies on the fly (optional)
 
 ## Security Model
 
@@ -27,8 +28,8 @@ The server implements multiple layers of security:
 ### Default Policy
 
 - **Allowed Commands**: git, gh, make, grep, sed, jq, aws, az, bash -lc
-- **Denied Patterns**: git push to main/master branches
-- **Allowed Directories**: `/Users/cartine/brutus`, `/Users/cartine/chat`
+- **Denied Patterns**: git push to main/master branches  
+- **Allowed Directories**: `~/projects`, `~/chat`
 - **Timeout**: 60 seconds per command
 - **Max Output**: 2MB per stream (stdout/stderr)
 
@@ -61,20 +62,125 @@ Update the security policy at runtime.
 - `max_bytes`: Maximum output size per stream
 - `env_whitelist`: Array of environment variables to pass through
 
-## Installation
+## Quick Start
+
+### 1. Installation
 
 ```bash
+git clone https://github.com/acartine/shemcp.git
+cd shemcp
 npm install
 npm run build
 ```
 
-## Usage
+### 2. Configuration
 
-The server runs as an MCP server over stdio:
+Create your configuration file:
 
 ```bash
-node dist/index.js
+# Create config directory
+mkdir -p ~/.config/shemcp
+
+# Copy example config and customize
+cp config.example.toml ~/.config/shemcp/config.toml
+
+# Edit the config to match your needs
+nano ~/.config/shemcp/config.toml
 ```
+
+### 3. Setup for Claude Code
+
+Add to your Claude Code configuration:
+
+**Option A: Using claude_code_config.yaml**
+```yaml
+mcpServers:
+  shell:
+    command: node
+    args: ["/path/to/shemcp/dist/index.js"]
+    env: {}
+```
+
+**Option B: Using MCP settings JSON**
+```json
+{
+  "mcpServers": {
+    "shell": {
+      "command": "node",
+      "args": ["/absolute/path/to/shemcp/dist/index.js"]
+    }
+  }
+}
+```
+
+### 4. Setup for Other MCP Clients
+
+**For Cursor/VS Code with MCP:**
+```json
+{
+  "mcp.servers": {
+    "shell": {
+      "command": "node",
+      "args": ["/absolute/path/to/shemcp/dist/index.js"],
+      "env": {}
+    }
+  }
+}
+```
+
+**For Desktop MCP Clients:**
+- **Command**: `node`
+- **Arguments**: `["/absolute/path/to/shemcp/dist/index.js"]`
+- **Working Directory**: `/path/to/shemcp`
+
+## Configuration
+
+The server loads configuration from:
+1. `~/.config/shemcp/config.toml` (user config - highest priority)
+2. `/etc/shemcp/config.toml` (system config - lower priority)
+3. Built-in defaults (fallback)
+
+### Configuration Structure
+
+```toml
+[server]
+name = "mcp-shell-safe"
+version = "0.1.0"
+
+[directories]
+allowed = ["~/projects", "~/workspace"]
+default = "~/projects"
+
+[commands]
+allow = ["^git(\\s|$)", "^npm(\\s|$)", "^make(\\s|$)"]
+deny = ["^git\\s+push\\s+(origin\\s+)?(main|master)"]
+
+[limits]
+timeout_seconds = 60
+max_output_bytes = 2000000
+
+[environment]
+whitelist = ["PATH", "HOME", "USER", "LANG"]
+
+[security]
+allow_runtime_policy_changes = true
+require_secure_permissions = false
+```
+
+See `config.example.toml` for a complete example with documentation.
+
+## Example Usage
+
+Once configured with Claude Code or another MCP client, you can ask the AI to execute shell commands:
+
+**Example interactions:**
+- *"Check the git status of my project"* → Executes `git status`
+- *"List all TypeScript files"* → Executes `find . -name "*.ts"`
+- *"Run the tests"* → Executes `npm test` 
+- *"Show recent commits"* → Executes `git log --oneline -10`
+- *"Create a new branch for this feature"* → Executes `git checkout -b feature-name`
+
+The AI can only execute commands that match your allow patterns and run in directories you've permitted, providing a secure sandbox for shell operations.
 
 ## Development
 
@@ -92,17 +198,61 @@ npm run build
 npm run dev
 ```
 
+## Security Considerations
+
+⚠️ **Important Security Notes:**
+
+1. **Configuration Security**: Config files should not be world-writable. The server warns about insecure permissions.
+
+2. **No Project-Level Configs**: By design, there are no `.shemcp.toml` files in working directories to prevent AI from modifying its own security constraints.
+
+3. **Principle of Least Privilege**: Start with restrictive settings and gradually add permissions as needed.
+
+4. **Regular Auditing**: Review your allowed commands and directories periodically.
+
 ## Testing
 
 The project includes a comprehensive test suite covering:
-- Policy validation
-- Command allowlisting/denylisting
+- Configuration loading and validation
+- Policy enforcement
+- Command allowlisting/denylisting  
 - Directory access controls
 - Environment filtering
 - Tool definitions
 - Server configuration
 
 Run tests with: `npm test`
+
+## Troubleshooting
+
+### Common Issues
+
+**"Command not allowed" errors:**
+- Check your `commands.allow` patterns in the config
+- Ensure the command matches the regex patterns
+- Verify the command isn't in the `commands.deny` list
+
+**"Directory not allowed" errors:**
+- Add the directory to `directories.allowed` in your config
+- Use absolute paths or `~/` for home directory
+- Ensure the directory exists and is accessible
+
+**Server not connecting:**
+- Verify the absolute path to `dist/index.js` in your MCP client config
+- Check that the server was built with `npm run build`
+- Look for error messages in the MCP client logs
+
+### Debug Configuration
+
+To see your current configuration:
+```bash
+# Check which config files exist
+ls -la ~/.config/shemcp/config.toml
+ls -la /etc/shemcp/config.toml
+
+# Test the server can start
+node dist/index.js --help  # (if help flag was implemented)
+```
 
 ## License
 
