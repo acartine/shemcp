@@ -254,50 +254,48 @@ export async function startServer() {
 if (import.meta.url === `file://${process.argv[1]}`) {
   let serverInstance: { server: typeof server; transport: StdioServerTransport } | null = null;
 
-  // Graceful shutdown handler with timeout
-  const shutdown = async (signal: string) => {
-    // Force exit after 2 seconds if cleanup hangs
-    const forceExit = setTimeout(() => {
-      console.error(`Force exit after shutdown timeout (${signal})`);
-      process.exit(1);
-    }, 2000);
+  // Track if we're already shutting down
+  let isShuttingDown = false;
 
+  // Graceful shutdown handler
+  const shutdown = async (signal: string) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+
+    // Don't log to stderr/stdout during shutdown to avoid protocol issues
+    // Just try to clean up silently
     try {
-      if (serverInstance?.server) {
-        // Try to close the server first
-        await serverInstance.server.close();
-      }
       if (serverInstance?.transport) {
-        // Then close the transport
         await serverInstance.transport.close();
       }
-    } catch (error) {
-      // Log but continue with shutdown
-      console.error(`Shutdown error (${signal}):`, error);
-    } finally {
-      clearTimeout(forceExit);
-      // Always exit, even if cleanup fails
+    } catch {
+      // Ignore errors
+    }
+
+    // For SIGINT/SIGTERM, exit cleanly with code 0
+    // This tells Claude Code we shut down properly
+    if (signal === 'SIGINT' || signal === 'SIGTERM') {
       process.exit(0);
+    } else {
+      // For other signals, exit with code 1
+      process.exit(1);
     }
   };
 
-  // Handle various shutdown signals
+  // Handle shutdown signals
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGHUP', () => shutdown('SIGHUP'));
   
   // Handle stdio stream closure (when Claude Code exits)
-  process.stdin.on('end', () => shutdown('STDIN_END'));
-  process.stdin.on('close', () => shutdown('STDIN_CLOSE'));
+  // Don't handle these - let the process end naturally
+  // process.stdin.on('end', () => shutdown('STDIN_END'));
+  // process.stdin.on('close', () => shutdown('STDIN_CLOSE'));
 
   // Start the server
   startServer()
     .then((instance) => {
       serverInstance = instance;
-      // Set up server close handler
-      server.onclose = () => {
-        process.exit(0);
-      };
+      // Don't set up server close handler - let signals handle shutdown
     })
     .catch((error) => {
       console.error('Failed to start server:', error);
