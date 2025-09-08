@@ -2,7 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as toml from "toml";
-import { Config, ConfigSchema, DEFAULT_CONFIG } from "./schema.js";
+import type { Config } from "./schema.js";
+import { ConfigSchema, DEFAULT_CONFIG } from "./schema.js";
 
 export class ConfigLoader {
   private static getConfigPaths(): string[] {

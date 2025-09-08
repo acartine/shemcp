@@ -45,5 +45,7 @@
     "moduleResolution": "nodeNext",
     "resolveJsonModule": true,
     "esModuleInterop": true,
-  }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "vitest.config.ts"]
 }

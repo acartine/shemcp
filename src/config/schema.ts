@@ -58,7 +58,7 @@ export const DEFAULT_CONFIG: Config = {
       "^bash\\s+-lc\\s+",
     ],
     deny: [
-      "^git\\s+push(\\s+.*)\\s+(origin\\s+)?(main|master)(\\s+.*)?$",
+      "^git\\s+push(\\s+.*)?\\s+(origin\\s+)?(main|master)(\\s+.*)?$",
       "^git\\s+push\\s*$",
     ],
   },

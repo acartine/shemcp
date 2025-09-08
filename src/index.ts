@@ -8,7 +8,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { Config, ConfigLoader } from "./config/index.js";
+import type { Config } from "./config/index.js";
+import { ConfigLoader } from "./config/index.js";
 
 /** ---------- Policy (mutable at runtime) ---------- */
 export type Policy = {
@@ -239,5 +240,40 @@ export async function startServer() {
 
 // Only start if this is the main module
 if (import.meta.url === `file://${process.argv[1]}`) {
-  startServer().catch(console.error);
+  let serverInstance: { server: typeof server; transport: StdioServerTransport } | null = null;
+
+  // Graceful shutdown handler
+  const shutdown = async (signal: string) => {
+    if (serverInstance) {
+      try {
+        await serverInstance.transport.close();
+      } catch (error) {
+        // Ignore errors during shutdown
+      }
+    }
+    process.exit(0);
+  };
+
+  // Handle various shutdown signals
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGHUP', () => shutdown('SIGHUP'));
+  
+  // Handle stdio stream closure (when Claude Code exits)
+  process.stdin.on('end', () => shutdown('STDIN_END'));
+  process.stdin.on('close', () => shutdown('STDIN_CLOSE'));
+
+  // Start the server
+  startServer()
+    .then((instance) => {
+      serverInstance = instance;
+      // Set up server close handler
+      server.onclose = () => {
+        process.exit(0);
+      };
+    })
+    .catch((error) => {
+      console.error('Failed to start server:', error);
+      process.exit(1);
+    });
 }
