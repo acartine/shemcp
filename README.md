@@ -25,6 +25,24 @@ The server implements multiple layers of security:
 3. **Environment Isolation**: Sensitive environment variables are filtered out
 4. **Resource Limits**: Prevent runaway processes with timeouts and output limits
 
+## Debugging
+
+The server writes debug logs to `~/.shemcp/debug.log` which can help diagnose issues:
+
+```bash
+# View the debug log
+tail -f ~/.shemcp/debug.log
+
+# Clear the debug log
+> ~/.shemcp/debug.log
+```
+
+The log captures:
+- Server startup and configuration loading
+- All MCP requests received
+- Shutdown signals and cleanup process  
+- Any errors or exceptions
+
 ### Default Policy
 
 - **Allowed Commands**: git, gh, make, grep, sed, jq, aws, az, bash -lc
