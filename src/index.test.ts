@@ -8,18 +8,27 @@ import {
   allowedCommand,
   filteredEnv,
   tools,
-  server
+  server,
+  createPolicyFromConfig,
+  setConfigForTesting
 } from './index.js';
+import { DEFAULT_CONFIG } from './config/schema.js';
+import type { Policy } from './index.js';
 
 describe('MCP Shell Server', () => {
+  let testPolicy: Policy;
+  
+  beforeEach(() => {
+    // Create isolated test policy from defaults
+    testPolicy = createPolicyFromConfig(DEFAULT_CONFIG);
+  });
+  
   describe('Policy Tests', () => {
-    // Note: Policy is now loaded from config files, so we test the loaded values
-
-    it('should have correct default policy values', () => {
-      expect(policy.allowedCwds.some(dir => dir.includes("projects"))).toBe(true);
-      expect(policy.defaultCwd).toBeTruthy();
-      expect(policy.timeoutMs).toBe(60_000);
-      expect(policy.maxBytes).toBe(2_000_000);
+    it('should create correct policy from default config', () => {
+      expect(testPolicy.allowedCwds.some(dir => dir.includes("projects"))).toBe(true);
+      expect(testPolicy.defaultCwd).toBeTruthy();
+      expect(testPolicy.timeoutMs).toBe(60_000);
+      expect(testPolicy.maxBytes).toBe(2_000_000);
     });
 
     it('should load configuration from config system', () => {
@@ -46,49 +55,49 @@ describe('MCP Shell Server', () => {
     });
 
     it('should allow whitelisted commands', () => {
-      expect(allowedCommand("git status")).toBe(true);
-      expect(allowedCommand("gh pr list")).toBe(true);
-      expect(allowedCommand("make build")).toBe(true);
-      expect(allowedCommand("grep test")).toBe(true);
-      expect(allowedCommand("bash -lc 'echo hello'")).toBe(true);
+      expect(allowedCommand("git status", testPolicy)).toBe(true);
+      expect(allowedCommand("gh pr list", testPolicy)).toBe(true);
+      expect(allowedCommand("make build", testPolicy)).toBe(true);
+      expect(allowedCommand("grep test", testPolicy)).toBe(true);
+      expect(allowedCommand("bash -lc 'echo hello'", testPolicy)).toBe(true);
     });
 
     it('should deny non-whitelisted commands', () => {
-      expect(allowedCommand("rm -rf /")).toBe(false);
-      expect(allowedCommand("curl http://example.com")).toBe(false);
-      expect(allowedCommand("python script.py")).toBe(false);
+      expect(allowedCommand("rm -rf /", testPolicy)).toBe(false);
+      expect(allowedCommand("curl http://example.com", testPolicy)).toBe(false);
+      expect(allowedCommand("python script.py", testPolicy)).toBe(false);
     });
 
     it('should deny explicitly blocked git push commands', () => {
-      expect(allowedCommand("git push origin main")).toBe(false);
-      expect(allowedCommand("git push origin master")).toBe(false);
-      expect(allowedCommand("git push")).toBe(false);
+      expect(allowedCommand("git push origin main", testPolicy)).toBe(false);
+      expect(allowedCommand("git push origin master", testPolicy)).toBe(false);
+      expect(allowedCommand("git push", testPolicy)).toBe(false);
     });
 
     it('should allow safe git commands', () => {
-      expect(allowedCommand("git pull")).toBe(true);
-      expect(allowedCommand("git commit")).toBe(true);
-      expect(allowedCommand("git push origin feature-branch")).toBe(true);
+      expect(allowedCommand("git pull", testPolicy)).toBe(true);
+      expect(allowedCommand("git commit", testPolicy)).toBe(true);
+      expect(allowedCommand("git push origin feature-branch", testPolicy)).toBe(true);
     });
   });
 
   describe('Working Directory Validation', () => {
     it('should reject unauthorized working directories', () => {
-      expect(() => ensureCwd("/etc")).toThrow("cwd not allowed");
-      expect(() => ensureCwd("/usr/bin")).toThrow("cwd not allowed");
-      expect(() => ensureCwd("/")).toThrow("cwd not allowed");
+      expect(() => ensureCwd("/etc", testPolicy)).toThrow("cwd not allowed");
+      expect(() => ensureCwd("/usr/bin", testPolicy)).toThrow("cwd not allowed");
+      expect(() => ensureCwd("/", testPolicy)).toThrow("cwd not allowed");
     });
 
     it('should accept authorized working directories', () => {
-      // Get the first allowed directory from config for testing
-      const allowedDir = policy.allowedCwds[0];
+      // Get the first allowed directory from test policy
+      const allowedDir = testPolicy.allowedCwds[0];
       if (allowedDir) {
         // Test with a non-existent but allowed subdirectory
-        expect(() => ensureCwd(allowedDir + "/non-existent-test-dir-12345")).toThrow("cwd not accessible");
+        expect(() => ensureCwd(allowedDir + "/non-existent-test-dir-12345", testPolicy)).toThrow("cwd not accessible");
         
         // Test the base directory (may exist or not)
         try {
-          ensureCwd(allowedDir);
+          ensureCwd(allowedDir, testPolicy);
           // Directory exists and is accessible - that's OK
         } catch (e: any) {
           // Should only be accessibility error, not allowlist error
@@ -113,7 +122,7 @@ describe('MCP Shell Server', () => {
         RANDOM_VAR: "should-not-appear"
       };
 
-      const filtered = filteredEnv();
+      const filtered = filteredEnv(testPolicy);
       
       expect(filtered.PATH).toBe("/usr/bin:/bin");
       expect(filtered.HOME).toBe("/home/user");
@@ -171,11 +180,13 @@ describe('MCP Shell Server', () => {
     });
 
     it('should convert config to policy correctly', () => {
-      expect(policy.allowedCwds).toEqual(config.directories.allowed);
-      expect(policy.defaultCwd).toBe(config.directories.default || null);
-      expect(policy.timeoutMs).toBe(config.limits.timeout_seconds * 1000);
-      expect(policy.maxBytes).toBe(config.limits.max_output_bytes);
-      expect(policy.envWhitelist).toEqual(config.environment.whitelist);
+      const testConfig = DEFAULT_CONFIG;
+      const convertedPolicy = createPolicyFromConfig(testConfig);
+      expect(convertedPolicy.allowedCwds).toEqual(testConfig.directories.allowed);
+      expect(convertedPolicy.defaultCwd).toBe(testConfig.directories.default || null);
+      expect(convertedPolicy.timeoutMs).toBe(testConfig.limits.timeout_seconds * 1000);
+      expect(convertedPolicy.maxBytes).toBe(testConfig.limits.max_output_bytes);
+      expect(convertedPolicy.envWhitelist).toEqual(testConfig.environment.whitelist);
     });
   });
 });

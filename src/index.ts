@@ -24,26 +24,36 @@ export type Policy = {
 
 export const makeRegex = (s: string) => new RegExp(s, "i");
 
+// Function to create policy from config
+function createPolicyFromConfig(config: Config): Policy {
+  return {
+    allowedCwds: config.directories.allowed,
+    defaultCwd: config.directories.default || null,
+    allow: config.commands.allow.map(makeRegex),
+    deny: config.commands.deny.map(makeRegex),
+    timeoutMs: config.limits.timeout_seconds * 1000,
+    maxBytes: config.limits.max_output_bytes,
+    envWhitelist: config.environment.whitelist
+  };
+}
+
 // Load configuration from config files
-const config: Config = ConfigLoader.loadConfig();
+let config: Config = ConfigLoader.loadConfig();
+let policy: Policy = createPolicyFromConfig(config);
 
-// Convert config to policy format
-export const policy: Policy = {
-  allowedCwds: config.directories.allowed,
-  defaultCwd: config.directories.default || null,
-  allow: config.commands.allow.map(makeRegex),
-  deny: config.commands.deny.map(makeRegex),
-  timeoutMs: config.limits.timeout_seconds * 1000,
-  maxBytes: config.limits.max_output_bytes,
-  envWhitelist: config.environment.whitelist
-};
+// Export functions for testing
+export { config, policy, createPolicyFromConfig };
 
-// Export the loaded config for inspection
-export { config };
+// Function to override config for testing
+export function setConfigForTesting(testConfig: Config) {
+  config = testConfig;
+  policy = createPolicyFromConfig(testConfig);
+}
 
 /** ---------- Helpers ---------- */
-export function ensureCwd(cwd: string) {
-  if (!policy.allowedCwds.some(p => cwd === p || cwd.startsWith(p + "/"))) {
+export function ensureCwd(cwd: string, testPolicy?: Policy) {
+  const currentPolicy = testPolicy || policy;
+  if (!currentPolicy.allowedCwds.some(p => cwd === p || cwd.startsWith(p + "/"))) {
     throw new Error(`cwd not allowed: ${cwd}`);
   }
   try { accessSync(cwd, constants.R_OK | constants.X_OK); }
@@ -55,14 +65,16 @@ export function buildCmdLine(cmd: string, args: string[]): string {
   return joined;
 }
 
-export function allowedCommand(full: string): boolean {
-  if (policy.deny.some(rx => rx.test(full))) return false;
-  return policy.allow.some(rx => rx.test(full));
+export function allowedCommand(full: string, testPolicy?: Policy): boolean {
+  const currentPolicy = testPolicy || policy;
+  if (currentPolicy.deny.some(rx => rx.test(full))) return false;
+  return currentPolicy.allow.some(rx => rx.test(full));
 }
 
-export function filteredEnv(): NodeJS.ProcessEnv {
+export function filteredEnv(testPolicy?: Policy): NodeJS.ProcessEnv {
+  const currentPolicy = testPolicy || policy;
   const out: NodeJS.ProcessEnv = {};
-  for (const k of policy.envWhitelist) {
+  for (const k of currentPolicy.envWhitelist) {
     if (process.env[k] !== undefined) out[k] = process.env[k];
   }
   return out;
@@ -242,16 +254,31 @@ export async function startServer() {
 if (import.meta.url === `file://${process.argv[1]}`) {
   let serverInstance: { server: typeof server; transport: StdioServerTransport } | null = null;
 
-  // Graceful shutdown handler
+  // Graceful shutdown handler with timeout
   const shutdown = async (signal: string) => {
-    if (serverInstance) {
-      try {
-        await serverInstance.transport.close();
-      } catch (error) {
-        // Ignore errors during shutdown
+    // Force exit after 2 seconds if cleanup hangs
+    const forceExit = setTimeout(() => {
+      console.error(`Force exit after shutdown timeout (${signal})`);
+      process.exit(1);
+    }, 2000);
+
+    try {
+      if (serverInstance?.server) {
+        // Try to close the server first
+        await serverInstance.server.close();
       }
+      if (serverInstance?.transport) {
+        // Then close the transport
+        await serverInstance.transport.close();
+      }
+    } catch (error) {
+      // Log but continue with shutdown
+      console.error(`Shutdown error (${signal}):`, error);
+    } finally {
+      clearTimeout(forceExit);
+      // Always exit, even if cleanup fails
+      process.exit(0);
     }
-    process.exit(0);
   };
 
   // Handle various shutdown signals
