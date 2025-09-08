@@ -90,27 +90,29 @@ nano ~/.config/shemcp/config.toml
 
 ### 3. Setup for Claude Code
 
-Add to your Claude Code configuration:
+Add the MCP server using Claude Code's CLI:
 
-**Option A: Using claude_code_config.yaml**
-```yaml
-mcpServers:
-  shell:
-    command: node
-    args: ["/path/to/shemcp/dist/index.js"]
-    env: {}
+```bash
+# Navigate to your shemcp directory
+cd /path/to/shemcp
+
+# Add the shell MCP server to Claude Code
+claude mcp add shell -- node /absolute/path/to/shemcp/dist/index.js
+
+# Verify it was added successfully
+claude mcp list
 ```
 
-**Option B: Using MCP settings JSON**
-```json
-{
-  "mcpServers": {
-    "shell": {
-      "command": "node",
-      "args": ["/absolute/path/to/shemcp/dist/index.js"]
-    }
-  }
-}
+**Alternative scopes:**
+```bash
+# Add for current project only (default)
+claude mcp add shell -- node /absolute/path/to/shemcp/dist/index.js
+
+# Add for current user (available in all projects)
+claude mcp add --scope user shell -- node /absolute/path/to/shemcp/dist/index.js
+
+# Add for project team (creates .mcp.json in project root)  
+claude mcp add --scope project shell -- node /absolute/path/to/shemcp/dist/index.js
 ```
 
 ### 4. Setup for Other MCP Clients
@@ -250,8 +252,14 @@ To see your current configuration:
 ls -la ~/.config/shemcp/config.toml
 ls -la /etc/shemcp/config.toml
 
-# Test the server can start
-node dist/index.js --help  # (if help flag was implemented)
+# List Claude Code MCP servers
+claude mcp list
+
+# Get details about your shell server
+claude mcp get shell
+
+# Remove server if needed
+claude mcp remove shell
 ```
 
 ## License
