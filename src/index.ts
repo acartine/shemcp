@@ -3,7 +3,7 @@ import { accessSync, constants, appendFileSync, mkdirSync } from "node:fs";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { 
   ListToolsRequestSchema,
   CallToolRequestSchema
@@ -41,8 +41,7 @@ function debugLog(message: string, data?: any) {
 
 /** ---------- Policy (mutable at runtime) ---------- */
 export type Policy = {
-  allowedCwds: string[];
-  defaultCwd: string | null;
+  rootDirectory: string;   // single root directory that contains all allowed operations
   allow: RegExp[];     // full command line allow list, e.g. /^git(\s|$)/, /^gh(\s|$)/
   deny: RegExp[];      // explicit denies, e.g. /^git\s+push(\s+.*)?\s+(origin\s+)?(main|master)(\s+.*)?$/i
   timeoutMs: number;   // hard cap per command
@@ -55,8 +54,7 @@ export const makeRegex = (s: string) => new RegExp(s, "i");
 // Function to create policy from config
 function createPolicyFromConfig(config: Config): Policy {
   return {
-    allowedCwds: config.directories.allowed,
-    defaultCwd: config.directories.default || null,
+    rootDirectory: config.directories.root,
     allow: config.commands.allow.map(makeRegex),
     deny: config.commands.deny.map(makeRegex),
     timeoutMs: config.limits.timeout_seconds * 1000,
@@ -86,9 +84,14 @@ export function setConfigForTesting(testConfig: Config) {
 /** ---------- Helpers ---------- */
 export function ensureCwd(cwd: string, testPolicy?: Policy) {
   const currentPolicy = testPolicy || policy;
-  if (!currentPolicy.allowedCwds.some(p => cwd === p || cwd.startsWith(p + "/"))) {
-    throw new Error(`cwd not allowed: ${cwd}`);
+  // Check if the cwd is the root directory or a subdirectory of the root
+  const normalizedCwd = resolve(cwd);
+  const normalizedRoot = resolve(currentPolicy.rootDirectory);
+  
+  if (!normalizedCwd.startsWith(normalizedRoot)) {
+    throw new Error(`cwd not allowed: ${cwd} (must be within ${currentPolicy.rootDirectory})`);
   }
+  
   try { accessSync(cwd, constants.R_OK | constants.X_OK); }
   catch { throw new Error(`cwd not accessible: ${cwd}`); }
 }
@@ -170,7 +173,7 @@ export const tools: Tool[] = [
   },
   {
     name: "shell_set_cwd",
-    description: "Set the default working directory (must be in allowedCwds).",
+    description: "Set the root directory (must be within the current root directory or a subdirectory).",
     inputSchema: {
       type: "object",
       properties: {
@@ -181,12 +184,10 @@ export const tools: Tool[] = [
   },
   {
     name: "shell_set_policy",
-    description: "Update policy: cwd allow-list, allow/deny regex, timeout, output cap, env whitelist.",
+    description: "Update policy: allow/deny regex, timeout, output cap, env whitelist. Root directory is automatic.",
     inputSchema: {
       type: "object",
       properties: {
-        allowed_cwds: { type: "array", items: { type: "string" } },
-        default_cwd: { type: "string" },
         allow_patterns: { type: "array", items: { type: "string" } },
         deny_patterns: { type: "array", items: { type: "string" } },
         timeout_ms: { type: "number", minimum: 1, maximum: 300000 },
@@ -209,7 +210,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   
   if (name === "shell_exec") {
     const input = args as any;
-    const cwd = input.cwd ?? policy.defaultCwd ?? process.cwd();
+    const cwd = input.cwd ?? policy.rootDirectory;
     ensureCwd(cwd);
 
     const full = buildCmdLine(input.cmd, input.args || []);
@@ -246,14 +247,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (name === "shell_set_cwd") {
     const input = args as any;
     ensureCwd(input.cwd);
-    policy.defaultCwd = input.cwd;
-    return { content: [{ type: "text", text: `defaultCwd set to ${input.cwd}` }] };
+    // Update the root directory to be the new cwd (but only if it's within the current root)
+    const normalizedNewCwd = resolve(input.cwd);
+    const normalizedCurrentRoot = resolve(policy.rootDirectory);
+    
+    if (!normalizedNewCwd.startsWith(normalizedCurrentRoot)) {
+      return {
+        content: [{ type: "text", text: `Error: Cannot set cwd outside of root directory ${policy.rootDirectory}` }],
+        isError: true,
+      };
+    }
+    
+    policy.rootDirectory = input.cwd;
+    return { content: [{ type: "text", text: `Root directory set to ${input.cwd}` }] };
   }
 
   if (name === "shell_set_policy") {
     const input = args as any;
-    if (input.allowed_cwds) policy.allowedCwds = input.allowed_cwds;
-    if (input.default_cwd)  { ensureCwd(input.default_cwd); policy.defaultCwd = input.default_cwd; }
     if (input.allow_patterns) policy.allow = input.allow_patterns.map(makeRegex);
     if (input.deny_patterns)  policy.deny  = input.deny_patterns.map(makeRegex);
     if (input.timeout_ms)     policy.timeoutMs = input.timeout_ms;
@@ -264,8 +274,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       content: [{
         type: "text",
         text: JSON.stringify({
-          allowedCwds: policy.allowedCwds,
-          defaultCwd: policy.defaultCwd,
+          rootDirectory: policy.rootDirectory,
           allow: policy.allow.map(r => r.source),
           deny: policy.deny.map(r => r.source),
           timeoutMs: policy.timeoutMs,

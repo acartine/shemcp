@@ -2,18 +2,12 @@
 # Copy this to ~/.config/shemcp/config.toml and customize as needed
 
 [server]
-name = "mcp-shell-safe"
-version = "0.1.0"
+name = "shemcp"
+version = "0.2.0"
 
 [directories]
-# Allowed working directories (paths will be expanded, ~ becomes home directory)
-allowed = [
-    "~/projects",
-    "~/workspace", 
-    "~/dev"
-]
-# Default working directory for commands
-default = "~/projects"
+# The root directory is automatically set to the directory where the MCP server was launched
+# No configuration needed - commands can only be executed within this directory and its subdirectories
 
 [commands]
 # Regular expressions for allowed commands (case insensitive)

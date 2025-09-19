@@ -97,8 +97,7 @@ export class ConfigLoader {
     
     expandedConfig.directories = {
       ...config.directories,
-      allowed: config.directories.allowed.map(dir => this.expandPath(dir)),
-      default: config.directories.default ? this.expandPath(config.directories.default) : undefined,
+      root: this.expandPath(config.directories.root),
     };
 
     return expandedConfig;

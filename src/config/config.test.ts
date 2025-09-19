@@ -34,15 +34,13 @@ describe('Configuration System', () => {
 
     it('should have correct server info', () => {
       const config = ConfigLoader.loadConfig();
-      expect(config.server.name).toBe('mcp-shell-safe');
-      expect(config.server.version).toBe('0.1.0');
+      expect(config.server.name).toBe('shemcp');
     });
 
-    it('should expand tilde paths', () => {
+    it('should have root directory set to current working directory', () => {
       const config = ConfigLoader.loadConfig();
-      // Paths should be expanded from ~ to actual home directory
-      expect(config.directories.allowed.every(path => path.startsWith('/'))).toBe(true);
-      expect(config.directories.default?.startsWith('/')).toBe(true);
+      // Root directory should be set to process.cwd()
+      expect(config.directories.root).toBe(process.cwd());
     });
 
     it('should provide config file path utilities', () => {
@@ -74,8 +72,8 @@ describe('Configuration System', () => {
     it('should provide reasonable defaults', () => {
       const defaults = DEFAULT_CONFIG;
       
-      expect(defaults.server.name).toBe('mcp-shell-safe');
-      expect(defaults.directories.allowed.length).toBeGreaterThan(0);
+      expect(defaults.server.name).toBe('shemcp');
+      expect(defaults.directories.root).toBe(process.cwd());
       expect(defaults.commands.allow.length).toBeGreaterThan(0);
       expect(defaults.limits.timeout_seconds).toBeGreaterThan(0);
       expect(defaults.environment.whitelist.length).toBeGreaterThan(0);

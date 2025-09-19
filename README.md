@@ -11,7 +11,7 @@ This MCP server provides sandboxed shell command execution with comprehensive se
 - **📋 TOML Configuration**: Easy-to-edit configuration files with validation
 - **🔒 Command Allowlisting**: Only pre-approved commands can be executed
 - **🚫 Command Denylisting**: Explicitly block dangerous command patterns
-- **📁 Working Directory Restrictions**: Limit execution to specific directories
+- **📁 Automatic Directory Sandboxing**: Commands can only run within the directory where the MCP server was launched
 - **🌍 Environment Filtering**: Only pass through safe environment variables
 - **⏱️ Resource Limits**: Configurable timeouts and output size caps
 - **🔧 Runtime Policy Updates**: Modify security policies on the fly (optional)
@@ -21,7 +21,7 @@ This MCP server provides sandboxed shell command execution with comprehensive se
 The server implements multiple layers of security:
 
 1. **Command Validation**: Commands must match allowlist patterns and not match denylist patterns
-2. **Directory Sandboxing**: Commands can only run in pre-approved directories
+2. **Directory Sandboxing**: Commands can only run within the root directory where the server was launched and its subdirectories
 3. **Environment Isolation**: Sensitive environment variables are filtered out
 4. **Resource Limits**: Prevent runaway processes with timeouts and output limits
 
@@ -47,7 +47,7 @@ The log captures:
 
 - **Allowed Commands**: git, gh, make, grep, sed, jq, aws, az, bash -lc
 - **Denied Patterns**: git push to main/master branches  
-- **Allowed Directories**: `~/projects`, `~/chat`
+- **Root Directory**: Automatically set to the directory where the MCP server was launched
 - **Timeout**: 60 seconds per command
 - **Max Output**: 2MB per stream (stdout/stderr)
 
@@ -59,21 +59,19 @@ Execute an allowed command with full sandboxing.
 **Parameters:**
 - `cmd` (required): The command to execute
 - `args`: Array of command arguments
-- `cwd`: Working directory (must be in allowed list)
+- `cwd`: Working directory (must be within the root directory)
 - `timeout_ms`: Command timeout in milliseconds
 
 ### 2. `shell_set_cwd`
-Set the default working directory for subsequent commands.
+Set the root directory (must be within the current root directory or a subdirectory).
 
 **Parameters:**
-- `cwd` (required): The new working directory
+- `cwd` (required): The new root directory
 
 ### 3. `shell_set_policy`
-Update the security policy at runtime.
+Update the security policy at runtime (root directory is automatic).
 
 **Parameters:**
-- `allowed_cwds`: Array of allowed working directories
-- `default_cwd`: Default working directory
 - `allow_patterns`: Array of regex patterns for allowed commands
 - `deny_patterns`: Array of regex patterns for denied commands
 - `timeout_ms`: Maximum command timeout
@@ -164,12 +162,12 @@ The server loads configuration from:
 
 ```toml
 [server]
-name = "mcp-shell-safe"
-version = "0.1.0"
+name = "shemcp"
+version = "0.2.0"
 
 [directories]
-allowed = ["~/projects", "~/workspace"]
-default = "~/projects"
+# The root directory is automatically set to where the MCP server was launched
+# No configuration needed - all operations are restricted to this directory and subdirectories
 
 [commands]
 allow = ["^git(\\s|$)", "^npm(\\s|$)", "^make(\\s|$)"]
@@ -253,9 +251,9 @@ Run tests with: `npm test`
 - Verify the command isn't in the `commands.deny` list
 
 **"Directory not allowed" errors:**
-- Add the directory to `directories.allowed` in your config
-- Use absolute paths or `~/` for home directory
-- Ensure the directory exists and is accessible
+- Ensure you're trying to execute commands within the directory where the MCP server was launched
+- The MCP server automatically restricts access to its launch directory and subdirectories
+- Check that the directory exists and is accessible
 
 **Server not connecting:**
 - Verify the absolute path to `dist/index.js` in your MCP client config
