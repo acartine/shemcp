@@ -25,17 +25,15 @@ describe('MCP Shell Server', () => {
   
   describe('Policy Tests', () => {
     it('should create correct policy from default config', () => {
-      expect(testPolicy.allowedCwds.some(dir => dir.includes("projects"))).toBe(true);
-      expect(testPolicy.defaultCwd).toBeTruthy();
+      expect(testPolicy.rootDirectory).toBe(process.cwd());
       expect(testPolicy.timeoutMs).toBe(60_000);
       expect(testPolicy.maxBytes).toBe(2_000_000);
     });
 
     it('should load configuration from config system', () => {
       expect(config).toBeDefined();
-      expect(config.server.name).toBe('mcp-shell-safe');
-      expect(config.server.version).toBe('0.1.0');
-      expect(config.directories.allowed.length).toBeGreaterThan(0);
+      expect(config.server.name).toBe('shemcp');
+      expect(config.directories.root).toBe(process.cwd());
       expect(config.commands.allow.length).toBeGreaterThan(0);
     });
 
@@ -82,28 +80,26 @@ describe('MCP Shell Server', () => {
   });
 
   describe('Working Directory Validation', () => {
-    it('should reject unauthorized working directories', () => {
+    it('should reject directories outside root directory', () => {
       expect(() => ensureCwd("/etc", testPolicy)).toThrow("cwd not allowed");
       expect(() => ensureCwd("/usr/bin", testPolicy)).toThrow("cwd not allowed");
       expect(() => ensureCwd("/", testPolicy)).toThrow("cwd not allowed");
     });
 
-    it('should accept authorized working directories', () => {
-      // Get the first allowed directory from test policy
-      const allowedDir = testPolicy.allowedCwds[0];
-      if (allowedDir) {
-        // Test with a non-existent but allowed subdirectory
-        expect(() => ensureCwd(allowedDir + "/non-existent-test-dir-12345", testPolicy)).toThrow("cwd not accessible");
-        
-        // Test the base directory (may exist or not)
-        try {
-          ensureCwd(allowedDir, testPolicy);
-          // Directory exists and is accessible - that's OK
-        } catch (e: any) {
-          // Should only be accessibility error, not allowlist error
-          expect(e.message).toContain("cwd not accessible");
-        }
+    it('should accept root directory and subdirectories', () => {
+      const rootDir = testPolicy.rootDirectory;
+      
+      // Test root directory (may exist or not)
+      try {
+        ensureCwd(rootDir, testPolicy);
+        // Directory exists and is accessible - that's OK
+      } catch (e: any) {
+        // Should only be accessibility error, not allowlist error
+        expect(e.message).toContain("cwd not accessible");
       }
+      
+      // Test with a non-existent but allowed subdirectory
+      expect(() => ensureCwd(rootDir + "/non-existent-test-dir-12345", testPolicy)).toThrow("cwd not accessible");
     });
   });
 
@@ -151,18 +147,18 @@ describe('MCP Shell Server', () => {
       const execTool = tools.find(t => t.name === "shell_exec");
       expect(execTool).toBeDefined();
       expect(execTool?.inputSchema.type).toBe("object");
-      expect(execTool?.inputSchema.properties.cmd).toBeDefined();
+      expect(execTool?.inputSchema.properties?.cmd).toBeDefined();
       expect(execTool?.inputSchema.required).toContain("cmd");
 
       const cwdTool = tools.find(t => t.name === "shell_set_cwd");
       expect(cwdTool).toBeDefined();
-      expect(cwdTool?.inputSchema.properties.cwd).toBeDefined();
+      expect(cwdTool?.inputSchema.properties?.cwd).toBeDefined();
       expect(cwdTool?.inputSchema.required).toContain("cwd");
 
       const policyTool = tools.find(t => t.name === "shell_set_policy");
       expect(policyTool).toBeDefined();
-      expect(policyTool?.inputSchema.properties.allowed_cwds).toBeDefined();
-      expect(policyTool?.inputSchema.properties.timeout_ms).toBeDefined();
+      expect(policyTool?.inputSchema.properties?.allow_patterns).toBeDefined();
+      expect(policyTool?.inputSchema.properties?.timeout_ms).toBeDefined();
     });
   });
 
@@ -182,8 +178,7 @@ describe('MCP Shell Server', () => {
     it('should convert config to policy correctly', () => {
       const testConfig = DEFAULT_CONFIG;
       const convertedPolicy = createPolicyFromConfig(testConfig);
-      expect(convertedPolicy.allowedCwds).toEqual(testConfig.directories.allowed);
-      expect(convertedPolicy.defaultCwd).toBe(testConfig.directories.default || null);
+      expect(convertedPolicy.rootDirectory).toBe(testConfig.directories.root);
       expect(convertedPolicy.timeoutMs).toBe(testConfig.limits.timeout_seconds * 1000);
       expect(convertedPolicy.maxBytes).toBe(testConfig.limits.max_output_bytes);
       expect(convertedPolicy.envWhitelist).toEqual(testConfig.environment.whitelist);

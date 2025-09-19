@@ -2,13 +2,12 @@ import { z } from "zod";
 
 export const ConfigSchema = z.object({
   server: z.object({
-    name: z.string().default("mcp-shell-safe"),
-    version: z.string().default("0.1.0"),
+    name: z.string().default("shemcp"),
+    version: z.string().default("0.2.0"),
   }).default({}),
 
   directories: z.object({
-    allowed: z.array(z.string()).default([]),
-    default: z.string().optional(),
+    root: z.string().default(process.cwd()),
   }).default({}),
 
   commands: z.object({
@@ -35,15 +34,11 @@ export type Config = z.infer<typeof ConfigSchema>;
 
 export const DEFAULT_CONFIG: Config = {
   server: {
-    name: "mcp-shell-safe",
-    version: "0.1.0",
+    name: "shemcp",
+    version: "0.2.0",
   },
   directories: {
-    allowed: [
-      "~/projects",
-      "~/chat",
-    ],
-    default: "~/chat",
+    root: process.cwd(),
   },
   commands: {
     allow: [
