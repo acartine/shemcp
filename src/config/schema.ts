@@ -1,4 +1,5 @@
 import { z } from "zod";
+import * as os from "node:os";
 
 export const ConfigSchema = z.object({
   server: z.object({
@@ -7,8 +8,8 @@ export const ConfigSchema = z.object({
   }).default({}),
 
   directories: z.object({
-    root: z.string().default(process.cwd()),
-  }).default({}),
+    root: z.string(),
+  }).default({ root: os.homedir() }),
 
   commands: z.object({
     allow: z.array(z.string()).default([]),
@@ -38,7 +39,7 @@ export const DEFAULT_CONFIG: Config = {
     version: "0.2.0",
   },
   directories: {
-    root: process.cwd(),
+    root: os.homedir(),
   },
   commands: {
     allow: [

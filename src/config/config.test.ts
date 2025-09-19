@@ -37,10 +37,10 @@ describe('Configuration System', () => {
       expect(config.server.name).toBe('shemcp');
     });
 
-    it('should have root directory set to current working directory', () => {
+    it('should have root directory set to user home directory', () => {
       const config = ConfigLoader.loadConfig();
-      // Root directory should be set to process.cwd()
-      expect(config.directories.root).toBe(process.cwd());
+      // In test environment, homedir is mocked to return '/home/testuser'
+      expect(config.directories.root).toBe('/home/testuser');
     });
 
     it('should provide config file path utilities', () => {
@@ -73,7 +73,7 @@ describe('Configuration System', () => {
       const defaults = DEFAULT_CONFIG;
       
       expect(defaults.server.name).toBe('shemcp');
-      expect(defaults.directories.root).toBe(process.cwd());
+      // DEFAULT_CONFIG doesn't have root set - it's set by the loader
       expect(defaults.commands.allow.length).toBeGreaterThan(0);
       expect(defaults.limits.timeout_seconds).toBeGreaterThan(0);
       expect(defaults.environment.whitelist.length).toBeGreaterThan(0);

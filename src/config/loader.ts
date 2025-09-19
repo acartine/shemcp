@@ -20,7 +20,8 @@ export class ConfigLoader {
    * Load and merge configuration from available config files
    */
   static loadConfig(): Config {
-    let mergedConfig = { ...DEFAULT_CONFIG };
+    // Start from defaults, but allow partial overrides before validation
+    let mergedConfig: any = { ...DEFAULT_CONFIG };
 
     // Load configs in reverse priority order so higher priority overwrites
     const configPaths = [...this.getConfigPaths()].reverse();
@@ -36,7 +37,14 @@ export class ConfigLoader {
       }
     }
 
-    // Validate and apply defaults to the final merged config
+    // Ensure required derived defaults are present before parsing
+    if (!mergedConfig.directories) mergedConfig.directories = {};
+    if (!mergedConfig.directories.root) {
+      // Use user's home directory if not provided anywhere
+      mergedConfig.directories.root = os.homedir();
+    }
+
+    // Validate the final merged config
     const validated = ConfigSchema.parse(mergedConfig);
     
     // Expand paths and compile patterns
@@ -92,15 +100,8 @@ export class ConfigLoader {
    * Post-process config: expand paths, compile regexes, etc.
    */
   private static postProcessConfig(config: Config): Config {
-    // Expand tilde in directory paths
-    const expandedConfig = { ...config };
-    
-    expandedConfig.directories = {
-      ...config.directories,
-      root: this.expandPath(config.directories.root),
-    };
-
-    return expandedConfig;
+    // Post-processing complete - root directory is already set by schema defaults
+    return config;
   }
 
   /**
