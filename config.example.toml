@@ -6,8 +6,9 @@ name = "shemcp"
 version = "0.2.0"
 
 [directories]
-# The root directory is automatically set to the directory where the MCP server was launched
-# No configuration needed - commands can only be executed within this directory and its subdirectories
+# The root directory defaults to the user's home directory (~/)
+# This allows Claude to access any project under your user account
+# Override with SHEMCP_ROOT environment variable if needed
 
 [commands]
 # Regular expressions for allowed commands (case insensitive)

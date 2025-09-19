@@ -66,6 +66,23 @@ function createPolicyFromConfig(config: Config): Policy {
 // Initialize debug logging
 initDebugLog();
 debugLog("Starting MCP server");
+debugLog("Process arguments", process.argv);
+debugLog("Process cwd", process.cwd());
+debugLog("Environment variables", {
+  PWD: process.env.PWD,
+  OLDPWD: process.env.OLDPWD,
+  PATH: process.env.PATH?.split(':').slice(0, 5), // Just first 5 for brevity
+  USER: process.env.USER,
+  HOME: process.env.HOME,
+  // Check for any Claude-specific env vars
+  ...Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => 
+      key.toLowerCase().includes('claude') || 
+      key.toLowerCase().includes('mcp') ||
+      key.toLowerCase().includes('anthropic')
+    )
+  )
+});
 
 // Load configuration from config files
 let config: Config = ConfigLoader.loadConfig();

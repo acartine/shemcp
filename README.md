@@ -11,7 +11,7 @@ This MCP server provides sandboxed shell command execution with comprehensive se
 - **📋 TOML Configuration**: Easy-to-edit configuration files with validation
 - **🔒 Command Allowlisting**: Only pre-approved commands can be executed
 - **🚫 Command Denylisting**: Explicitly block dangerous command patterns
-- **📁 Automatic Directory Sandboxing**: Commands can only run within the directory where the MCP server was launched
+- **📁 User-Scoped Directory Access**: Commands can run anywhere within the user's home directory by default
 - **🌍 Environment Filtering**: Only pass through safe environment variables
 - **⏱️ Resource Limits**: Configurable timeouts and output size caps
 - **🔧 Runtime Policy Updates**: Modify security policies on the fly (optional)
@@ -21,7 +21,7 @@ This MCP server provides sandboxed shell command execution with comprehensive se
 The server implements multiple layers of security:
 
 1. **Command Validation**: Commands must match allowlist patterns and not match denylist patterns
-2. **Directory Sandboxing**: Commands can only run within the root directory where the server was launched and its subdirectories
+2. **Directory Sandboxing**: Commands can only run within the user's home directory and its subdirectories (customizable via SHEMCP_ROOT)
 3. **Environment Isolation**: Sensitive environment variables are filtered out
 4. **Resource Limits**: Prevent runaway processes with timeouts and output limits
 
@@ -47,7 +47,7 @@ The log captures:
 
 - **Allowed Commands**: git, gh, make, grep, sed, jq, aws, az, bash -lc
 - **Denied Patterns**: git push to main/master branches  
-- **Root Directory**: Automatically set to the directory where the MCP server was launched
+- **Root Directory**: User's home directory (~/) by default, customizable via SHEMCP_ROOT environment variable
 - **Timeout**: 60 seconds per command
 - **Max Output**: 2MB per stream (stdout/stderr)
 
@@ -59,7 +59,7 @@ Execute an allowed command with full sandboxing.
 **Parameters:**
 - `cmd` (required): The command to execute
 - `args`: Array of command arguments
-- `cwd`: Working directory (must be within the root directory)
+- `cwd`: Working directory (must be within the user's home directory or SHEMCP_ROOT)
 - `timeout_ms`: Command timeout in milliseconds
 
 ### 2. `shell_set_cwd`
@@ -69,7 +69,7 @@ Set the root directory (must be within the current root directory or a subdirect
 - `cwd` (required): The new root directory
 
 ### 3. `shell_set_policy`
-Update the security policy at runtime (root directory is automatic).
+Update the security policy at runtime (root directory can be overridden via SHEMCP_ROOT env var).
 
 **Parameters:**
 - `allow_patterns`: Array of regex patterns for allowed commands
@@ -166,8 +166,8 @@ name = "shemcp"
 version = "0.2.0"
 
 [directories]
-# The root directory is automatically set to where the MCP server was launched
-# No configuration needed - all operations are restricted to this directory and subdirectories
+# The root directory defaults to the user's home directory (~/)
+# Override with SHEMCP_ROOT environment variable if needed
 
 [commands]
 allow = ["^git(\\s|$)", "^npm(\\s|$)", "^make(\\s|$)"]
@@ -251,9 +251,9 @@ Run tests with: `npm test`
 - Verify the command isn't in the `commands.deny` list
 
 **"Directory not allowed" errors:**
-- Ensure you're trying to execute commands within the directory where the MCP server was launched
-- The MCP server automatically restricts access to its launch directory and subdirectories
-- Check that the directory exists and is accessible
+- By default, the server allows access to your entire home directory (~/)
+- Use SHEMCP_ROOT environment variable to restrict to a specific directory if needed
+- Ensure the directory exists and is accessible
 
 **Server not connecting:**
 - Verify the absolute path to `dist/index.js` in your MCP client config
