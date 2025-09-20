@@ -1,5 +1,10 @@
 # MCP Shell Server
 
+[![npm version](https://img.shields.io/npm/v/shemcp.svg)](https://www.npmjs.com/package/shemcp)
+[![npm downloads](https://img.shields.io/npm/dm/shemcp.svg)](https://www.npmjs.com/package/shemcp)
+[![CI](https://github.com/acartine/shemcp/actions/workflows/ci.yml/badge.svg)](https://github.com/acartine/shemcp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A secure shell command execution server for the Model Context Protocol (MCP).
 
 ## Overview
