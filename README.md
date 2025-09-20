@@ -80,7 +80,21 @@ Update the security policy at runtime (root directory can be overridden via SHEM
 
 ## Quick Start
 
-### 1. Installation
+### 1) Install (npm)
+
+Global (useful if you want the CLI available everywhere):
+
+```bash
+npm install -g shemcp
+```
+
+Project-local (dev dependency):
+
+```bash
+npm install -D shemcp
+```
+
+From source (optional, for contributors):
 
 ```bash
 git clone https://github.com/acartine/shemcp.git

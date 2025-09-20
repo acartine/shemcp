@@ -5,11 +5,38 @@
   "bin": {
     "shemcp": "dist/index.js"
   },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**",
+    "README.md",
+    "LICENSE",
+    "config.example.toml"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "ts-node src/index.ts",
-    "test": "vitest",
-    "test:ui": "vitest --ui"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:ci": "vitest run",
+    "prepublishOnly": "npm run build && npm run test:ci"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/acartine/shemcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/acartine/shemcp/issues"
+  },
+  "homepage": "https://github.com/acartine/shemcp#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -19,6 +46,7 @@
   "devDependencies": {
     "@types/node": "^22.18.1",
     "@vitest/ui": "^3.2.4",
+    "@changesets/cli": "^2.27.9",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"

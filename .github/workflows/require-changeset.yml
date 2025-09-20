@@ -1,0 +1,26 @@
+name: Require Changeset
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Determine if published files changed
+        id: changed
+        uses: tj-actions/changed-files@v45
+        with:
+          files: |
+            src/**
+            package.json
+      - name: Verify changeset exists if needed
+        if: steps.changed.outputs.any_changed == 'true'
+        run: |
+          if [ -z "$(ls -1 .changeset/*.md 2>/dev/null || true)" ]; then
+            echo "No changeset found for changes to publishable files."
+            echo "Run: npx changeset"
+            exit 1
+          fi

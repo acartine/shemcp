@@ -50,7 +50,7 @@ Checklist:
 ## Phase 2 – Docs update (installation first)
 
 README changes to prioritize npm installation:
-
+(preserving github clone installations also)
 1) Global install (if appropriate)
    - `npm install -g shemcp`
 2) Project install
