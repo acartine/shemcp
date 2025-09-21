@@ -17,6 +17,20 @@ jobs:
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org
+      - name: Print Node and npm versions
+        run: |
+          node -v
+          npm -v
+      - name: Verify npm auth and registry (no secrets)
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "registry=$(npm config get registry)"
+          echo "whoami:"
+          npm whoami --registry=https://registry.npmjs.org || true
+          echo "ping:"
+          npm ping --registry=https://registry.npmjs.org || true
       - run: npm ci
       - run: npm run build
       - name: Create Release PR or Publish
@@ -26,3 +40,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
