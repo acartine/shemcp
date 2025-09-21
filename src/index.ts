@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants, appendFileSync, mkdirSync } from "node:fs";
+import { accessSync, constants, appendFileSync, mkdirSync, existsSync, realpathSync } from "node:fs";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, relative as pathRelative, isAbsolute as pathIsAbsolute } from "node:path";
 import { 
   ListToolsRequestSchema,
   CallToolRequestSchema
@@ -87,6 +87,36 @@ debugLog("Environment variables", {
 // Load configuration from config files
 let config: Config = ConfigLoader.loadConfig();
 let policy: Policy = createPolicyFromConfig(config);
+
+/** Derive a stable sandbox root:
+ * 1) SHEMCP_ROOT or MCP_SANDBOX_ROOT env var if set
+ * 2) nearest Git repo root from process.cwd()
+ * 3) process.cwd() as a fallback
+ */
+function findGitRoot(startDir: string): string | null {
+  let dir = resolve(startDir);
+  while (true) {
+    const gitPath = join(dir, ".git");
+    if (existsSync(gitPath)) return dir;
+    const parent = resolve(dir, "..");
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+function deriveSandboxRoot(): string {
+  const envRoot = process.env.SHEMCP_ROOT || process.env.MCP_SANDBOX_ROOT;
+  if (envRoot && existsSync(envRoot)) return resolve(envRoot);
+  const gitRoot = findGitRoot(process.cwd());
+  if (gitRoot) return resolve(gitRoot);
+  return resolve(process.cwd());
+}
+
+// Override rootDirectory to dynamic detection to avoid shrinking into subfolders
+const derivedRoot = deriveSandboxRoot();
+policy.rootDirectory = derivedRoot;
+debugLog("Derived sandbox root", { derivedRoot });
 debugLog("Config loaded", { configName: config.server.name, version: config.server.version });
 
 // Export functions for testing
@@ -101,16 +131,32 @@ export function setConfigForTesting(testConfig: Config) {
 /** ---------- Helpers ---------- */
 export function ensureCwd(cwd: string, testPolicy?: Policy) {
   const currentPolicy = testPolicy || policy;
-  // Check if the cwd is the root directory or a subdirectory of the root
+  // 1) Check simple prefix boundary using resolved paths (works for non-existent paths)
   const normalizedCwd = resolve(cwd);
   const normalizedRoot = resolve(currentPolicy.rootDirectory);
-  
-  if (!normalizedCwd.startsWith(normalizedRoot)) {
+  const boundary = normalizedRoot === normalizedCwd || normalizedCwd.startsWith(normalizedRoot + (normalizedRoot.endsWith("/") ? "" : "/"));
+  if (!boundary) {
     throw new Error(`cwd not allowed: ${cwd} (must be within ${currentPolicy.rootDirectory})`);
   }
-  
+
+  // 2) Ensure path exists and is accessible
   try { accessSync(cwd, constants.R_OK | constants.X_OK); }
   catch { throw new Error(`cwd not accessible: ${cwd}`); }
+
+  // 3) Mitigate symlink escapes: re-check boundary using real paths
+  try {
+    const realCwd = realpathSync(cwd);
+    const realRoot = realpathSync(currentPolicy.rootDirectory);
+    const rel = pathRelative(realRoot, realCwd);
+    const within = rel === "" || (!rel.startsWith("..") && !pathIsAbsolute(rel));
+    if (!within) {
+      throw new Error(`cwd not allowed: ${cwd} (resolved outside sandbox root)`);
+    }
+  } catch (e: any) {
+    if (e?.message?.includes("cwd not allowed")) throw e;
+    // realpath errors should map to accessibility issues
+    throw new Error(`cwd not accessible: ${cwd}`);
+  }
 }
 
 export function buildCmdLine(cmd: string, args: string[]): string {
@@ -176,27 +222,26 @@ debugLog("Server instance created");
 export const tools: Tool[] = [
   {
     name: "shell_exec",
-    description: "Execute an allow-listed command with sandboxing and limits.",
+    description: "Execute an allow-listed command within the sandbox (git project root). Optional cwd must be RELATIVE to the sandbox root.",
     inputSchema: {
       type: "object",
       properties: {
         cmd: { type: "string", minLength: 1 },
         args: { type: "array", items: { type: "string" }, default: [] },
-        cwd: { type: "string" },
+        cwd: { type: "string", description: "Relative path from sandbox root (no absolute paths)" },
         timeout_ms: { type: "number", minimum: 1, maximum: 300000 }
       },
       required: ["cmd"]
     }
   },
   {
-    name: "shell_set_cwd",
-    description: "Set the root directory (must be within the current root directory or a subdirectory).",
+    name: "shell_info",
+    description: "Get sandbox information (sandbox root) and optionally resolve a relative cwd against it.",
     inputSchema: {
       type: "object",
       properties: {
-        cwd: { type: "string", minLength: 1 }
-      },
-      required: ["cwd"]
+        cwd: { type: "string", description: "Optional relative cwd to resolve against sandbox root" }
+      }
     }
   },
   {
@@ -227,8 +272,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   
   if (name === "shell_exec") {
     const input = args as any;
-    const cwd = input.cwd ?? policy.rootDirectory;
-    ensureCwd(cwd);
+    // Enforce relative cwd only; default to sandbox root
+    if (input.cwd && pathIsAbsolute(input.cwd)) {
+      return {
+        content: [{ type: "text", text: `Error: cwd must be a relative path within sandbox root. Received absolute: ${input.cwd}. Sandbox root: ${policy.rootDirectory}` }],
+        isError: true,
+      };
+    }
+    const resolvedCwd = resolve(policy.rootDirectory, input.cwd || ".");
+    ensureCwd(resolvedCwd);
 
     const full = buildCmdLine(input.cmd, input.args || []);
     if (!allowedCommand(full)) {
@@ -239,7 +291,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     const tmo = Math.min(input.timeout_ms ?? policy.timeoutMs, policy.timeoutMs);
-    const res = await execOnce(input.cmd, input.args || [], cwd, tmo, policy.maxBytes);
+  const res = await execOnce(input.cmd, input.args || [], resolvedCwd, tmo, policy.maxBytes);
 
     return {
       content: [{
@@ -254,29 +306,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             stdout: res.stdout,
             stderr: res.stderr,
             cmdline: [input.cmd, ...(input.args || [])],
-            cwd
+            cwd: resolvedCwd
           }, null, 2)
         }
       }]
     };
   }
 
-  if (name === "shell_set_cwd") {
-    const input = args as any;
-    ensureCwd(input.cwd);
-    // Update the root directory to be the new cwd (but only if it's within the current root)
-    const normalizedNewCwd = resolve(input.cwd);
-    const normalizedCurrentRoot = resolve(policy.rootDirectory);
-    
-    if (!normalizedNewCwd.startsWith(normalizedCurrentRoot)) {
-      return {
-        content: [{ type: "text", text: `Error: Cannot set cwd outside of root directory ${policy.rootDirectory}` }],
-        isError: true,
+  if (name === "shell_info") {
+    const input = (args as any) || {};
+    const root = resolve(policy.rootDirectory);
+    let info: any = { sandbox_root: root };
+    if (typeof input.cwd === 'string' && input.cwd.length > 0) {
+      const isAbs = pathIsAbsolute(input.cwd);
+      const resolved = isAbs ? input.cwd : resolve(root, input.cwd);
+      let within = false;
+      try {
+        const realRoot = realpathSync(root);
+        const realPath = existsSync(resolved) ? realpathSync(resolved) : resolved;
+        const rel = pathRelative(realRoot, realPath);
+        within = rel === "" || (!rel.startsWith("..") && !pathIsAbsolute(rel));
+      } catch {
+        // If realpath fails (non-existent), fall back to prefix-based check
+        const normResolved = resolve(resolved);
+        within = normResolved === root || normResolved.startsWith(root + (root.endsWith("/") ? "" : "/"));
+      }
+      info = {
+        ...info,
+        input_cwd: input.cwd,
+        absolute_input: isAbs,
+        resolved_path: resolved,
+        within_sandbox: !isAbs && within,
+        note: isAbs ? "Absolute cwd is rejected by shell_exec; provide a relative path." : undefined
       };
     }
-    
-    policy.rootDirectory = input.cwd;
-    return { content: [{ type: "text", text: `Root directory set to ${input.cwd}` }] };
+    return {
+      content: [{ type: "text", text: JSON.stringify(info, null, 2) }]
+    };
   }
 
   if (name === "shell_set_policy") {
