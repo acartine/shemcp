@@ -11,6 +11,21 @@ A secure shell command execution server for the Model Context Protocol (MCP).
 
 This MCP server provides sandboxed shell command execution with comprehensive security policies. It allows AI assistants to safely execute shell commands while enforcing strict access controls through configurable TOML files.
 
+### Sandbox root selection
+
+To avoid the sandbox accidentally shrinking to a nested subdirectory, shemcp derives a stable sandbox root at startup using the following precedence:
+
+1) SHEMCP_ROOT or MCP_SANDBOX_ROOT environment variable (if set and exists)
+2) Nearest Git repository root discovered from the agent's process.cwd()
+3) process.cwd() as a final fallback
+
+The chosen root remains fixed for the duration of the process. All working directories for command execution must be specified as relative paths inside this sandbox; absolute paths are rejected.
+
+- shell_exec optionally accepts a cwd that must be RELATIVE to the sandbox root; absolute paths are rejected.
+
+This ensures that if the client happens to start the agent several levels deep, the sandbox still resolves to the project root (typically the Git root), preventing the MCP from becoming unable to access sibling paths in the repository.
+
+You can explicitly override the root for special cases with SHEMCP_ROOT or MCP_SANDBOX_ROOT.
 ## Features
 
 - **📋 TOML Configuration**: Easy-to-edit configuration files with validation
@@ -64,14 +79,16 @@ Execute an allowed command with full sandboxing.
 **Parameters:**
 - `cmd` (required): The command to execute
 - `args`: Array of command arguments
-- `cwd`: Working directory (must be within the user's home directory or SHEMCP_ROOT)
+- `cwd`: Optional working directory relative to the sandbox root (git project root). Absolute paths are rejected.
 - `timeout_ms`: Command timeout in milliseconds
 
-### 2. `shell_set_cwd`
-Set the root directory (must be within the current root directory or a subdirectory).
+### 2. `shell_info`
+Get sandbox information.
 
-**Parameters:**
-- `cwd` (required): The new root directory
+Parameters (optional):
+- `cwd`: relative path to resolve against the sandbox root
+
+Returns: JSON with `sandbox_root`, and if `cwd` is provided, fields including `resolved_path` and whether it is within the sandbox.
 
 ### 3. `shell_set_policy`
 Update the security policy at runtime (root directory can be overridden via SHEMCP_ROOT env var).
@@ -270,9 +287,9 @@ Run tests with: `npm test`
 - Verify the command isn't in the `commands.deny` list
 
 **"Directory not allowed" errors:**
-- By default, the server allows access to your entire home directory (~/)
-- Use SHEMCP_ROOT environment variable to restrict to a specific directory if needed
-- Ensure the directory exists and is accessible
+- The sandbox root is the Git project root (or process.cwd() if no Git repo). All paths must be inside it.
+- Use SHEMCP_ROOT or MCP_SANDBOX_ROOT to override for special cases.
+- Ensure the directory exists and is accessible.
 
 **Server not connecting:**
 - Verify the absolute path to `dist/index.js` in your MCP client config
