@@ -142,14 +142,12 @@ describe('MCP Shell Server', () => {
 
   describe('Tool Definitions', () => {
     it('should define all expected tools', () => {
-      expect(tools.length === 2 || tools.length === 3).toBe(true);
+      expect(tools).toHaveLength(3);
+      
       const toolNames = tools.map(t => t.name);
       expect(toolNames).toContain("shell_exec");
+      expect(toolNames).toContain("shell_set_cwd");
       expect(toolNames).toContain("shell_set_policy");
-      // Optional helper tool
-      if (tools.length === 3) {
-        expect(toolNames).toContain("shell_info");
-      }
     });
 
     it('should have proper tool schemas', () => {
@@ -159,18 +157,15 @@ describe('MCP Shell Server', () => {
       expect(execTool?.inputSchema.properties?.cmd).toBeDefined();
       expect(execTool?.inputSchema.required).toContain("cmd");
 
-  const cwdTool = tools.find(t => t.name === "shell_set_cwd");
-  expect(cwdTool).toBeUndefined();
+      const cwdTool = tools.find(t => t.name === "shell_set_cwd");
+      expect(cwdTool).toBeDefined();
+      expect(cwdTool?.inputSchema.properties?.cwd).toBeDefined();
+      expect(cwdTool?.inputSchema.required).toContain("cwd");
 
       const policyTool = tools.find(t => t.name === "shell_set_policy");
       expect(policyTool).toBeDefined();
       expect(policyTool?.inputSchema.properties?.allow_patterns).toBeDefined();
       expect(policyTool?.inputSchema.properties?.timeout_ms).toBeDefined();
-    });
-
-    it('should reject absolute cwd in shell_exec description', () => {
-      const execTool = tools.find(t => t.name === "shell_exec");
-      expect(execTool?.description?.toLowerCase()).toContain("relative");
     });
   });
 
