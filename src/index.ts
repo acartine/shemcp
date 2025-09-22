@@ -10,6 +10,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import pkg from "../package.json" with { type: "json" };
 import type { Config } from "./config/index.js";
 import { ConfigLoader } from "./config/index.js";
 
@@ -117,7 +118,8 @@ function deriveSandboxRoot(): string {
 const derivedRoot = deriveSandboxRoot();
 policy.rootDirectory = derivedRoot;
 debugLog("Derived sandbox root", { derivedRoot });
-debugLog("Config loaded", { configName: config.server.name, version: config.server.version });
+const PKG_VERSION: string = (pkg as any).version ?? "0.0.0";
+debugLog("Config loaded", { configName: config.server.name, serverVersion: PKG_VERSION });
 
 // Export functions for testing
 export { config, policy, createPolicyFromConfig };
@@ -213,7 +215,7 @@ export async function execOnce(cmd: string, args: string[], cwd: string, timeout
 
 /** ---------- MCP server & tools ---------- */
 export const server = new Server(
-  { name: config.server.name, version: config.server.version },
+  { name: config.server.name, version: PKG_VERSION },
   { capabilities: { tools: {} } }
 );
 debugLog("Server instance created");

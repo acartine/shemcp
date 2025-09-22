@@ -227,7 +227,9 @@ The server loads configuration from:
 ```toml
 [server]
 name = "shemcp"
-version = "0.2.0"
+
+# Configuration format version (not the package version)
+config_version = 1
 
 [directories]
 # The sandbox root defaults to the Git repository root (fallback to the current
