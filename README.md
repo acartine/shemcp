@@ -1,11 +1,11 @@
-# MCP Shell Server
+# Shemcp - the simple shell mcp server.
 
 [![npm version](https://img.shields.io/npm/v/shemcp.svg)](https://www.npmjs.com/package/shemcp)
 [![npm downloads](https://img.shields.io/npm/dm/shemcp.svg)](https://www.npmjs.com/package/shemcp)
 [![CI](https://github.com/acartine/shemcp/actions/workflows/ci.yml/badge.svg)](https://github.com/acartine/shemcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A secure shell command execution server for the Model Context Protocol (MCP).
+Independent agentic coding without handing over the keys to the castle.  Stop getting approval prompts that are unimportant.
 
 ## Overview
 
@@ -71,34 +71,40 @@ The log captures:
 - **Timeout**: 60 seconds per command
 - **Max Output**: 2MB per stream (stdout/stderr)
 
-## Available Tools
+## Commands
 
-### 1. `shell_exec`
-Execute an allowed command with full sandboxing.
+### 1) `shell_exec`
+Execute an allow-listed command inside the sandbox.
 
-**Parameters:**
-- `cmd` (required): The command to execute
-- `args`: Array of command arguments
-- `cwd`: Optional working directory relative to the sandbox root (git project root). Absolute paths are rejected.
-- `timeout_ms`: Command timeout in milliseconds
+- Parameters:
+  - `cmd` (required): Command to run
+  - `args`: Array of string arguments
+  - `cwd`: Optional working directory relative to the sandbox root (no absolute paths)
+  - `timeout_ms`: Command timeout in milliseconds
+- Rules:
+  - `cwd` must be RELATIVE to the sandbox root
+  - Absolute paths are rejected with an error that includes the received path and the sandbox root
+- Returns: stdout, stderr, exit code, duration, and the resolved cwd
 
-### 2. `shell_info`
-Get sandbox information.
+### 2) `shell_info`
+Introspection utility for the sandbox.
 
-Parameters (optional):
-- `cwd`: relative path to resolve against the sandbox root
+- Parameters (optional):
+  - `cwd`: Relative path to resolve and validate against the sandbox root
+- Returns: JSON including `sandbox_root`, and if `cwd` is provided, `resolved_path` and `within_sandbox` flags
 
-Returns: JSON with `sandbox_root`, and if `cwd` is provided, fields including `resolved_path` and whether it is within the sandbox.
+### 3) Removed: `shell_set_cwd`
+This command has been removed. Use `shell_exec` with a relative `cwd` instead.
 
-### 3. `shell_set_policy`
-Update the security policy at runtime (root directory can be overridden via SHEMCP_ROOT env var).
+### 4) `shell_set_policy`
+Update the security policy at runtime.
 
-**Parameters:**
-- `allow_patterns`: Array of regex patterns for allowed commands
-- `deny_patterns`: Array of regex patterns for denied commands
-- `timeout_ms`: Maximum command timeout
-- `max_bytes`: Maximum output size per stream
-- `env_whitelist`: Array of environment variables to pass through
+- Parameters:
+  - `allow_patterns`: Array of regex patterns for allowed commands
+  - `deny_patterns`: Array of regex patterns for denied commands
+  - `timeout_ms`: Maximum command timeout
+  - `max_bytes`: Maximum output size per stream
+  - `env_whitelist`: Array of environment variables to pass through
 
 ## Quick Start
 
