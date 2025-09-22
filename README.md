@@ -7,6 +7,14 @@
 
 Independent agentic coding without handing over the keys to the castle.  Stop getting approval prompts that are unimportant.
 
+## What's new
+
+- Sandbox root now resolves to the Git repository root by default (fallback to the current working directory), with optional overrides via `SHEMCP_ROOT` or `MCP_SANDBOX_ROOT`.
+- Removed the `shell_set_cwd` tool; `shell_exec` cwd must be RELATIVE to the sandbox root. Absolute paths are rejected with clear error messages that include the received path and the sandbox root.
+- Added `shell_info` tool for introspection (reports `sandbox_root` and resolves relative `cwd` inputs, including `within_sandbox` checks).
+- Hardened `ensureCwd` with `realpath` and boundary checks to prevent symlink escapes and ensure directory accessibility.
+- Updated docs and tests to reflect the new behavior.
+
 ## Overview
 
 This MCP server provides sandboxed shell command execution with comprehensive security policies. It allows AI assistants to safely execute shell commands while enforcing strict access controls through configurable TOML files.
@@ -31,7 +39,8 @@ You can explicitly override the root for special cases with SHEMCP_ROOT or MCP_S
 - **📋 TOML Configuration**: Easy-to-edit configuration files with validation
 - **🔒 Command Allowlisting**: Only pre-approved commands can be executed
 - **🚫 Command Denylisting**: Explicitly block dangerous command patterns
-- **📁 User-Scoped Directory Access**: Commands can run anywhere within the user's home directory by default
+- **📁 Sandboxed to Project Root**: Commands run within the Git repository root by default (fallback to current working directory). Override with `SHEMCP_ROOT` or `MCP_SANDBOX_ROOT`.
+- **🛡️ Hardened Path Enforcement**: `cwd` must be relative; absolute paths are rejected. Realpath boundary checks prevent symlink escapes.
 - **🌍 Environment Filtering**: Only pass through safe environment variables
 - **⏱️ Resource Limits**: Configurable timeouts and output size caps
 - **🔧 Runtime Policy Updates**: Modify security policies on the fly (optional)
@@ -41,7 +50,7 @@ You can explicitly override the root for special cases with SHEMCP_ROOT or MCP_S
 The server implements multiple layers of security:
 
 1. **Command Validation**: Commands must match allowlist patterns and not match denylist patterns
-2. **Directory Sandboxing**: Commands can only run within the user's home directory and its subdirectories (customizable via SHEMCP_ROOT)
+2. **Directory Sandboxing**: Commands can only run within the sandbox root (Git repository root by default; fallback to CWD). `cwd` must be relative to the sandbox root; absolute paths are rejected. Override via `SHEMCP_ROOT` or `MCP_SANDBOX_ROOT`.
 3. **Environment Isolation**: Sensitive environment variables are filtered out
 4. **Resource Limits**: Prevent runaway processes with timeouts and output limits
 
@@ -67,7 +76,7 @@ The log captures:
 
 - **Allowed Commands**: git, gh, make, grep, sed, jq, aws, az, bash -lc
 - **Denied Patterns**: git push to main/master branches  
-- **Root Directory**: User's home directory (~/) by default, customizable via SHEMCP_ROOT environment variable
+- **Root Directory**: Git repository root by default (fallback to process.cwd()). Override via `SHEMCP_ROOT` or `MCP_SANDBOX_ROOT`.
 - **Timeout**: 60 seconds per command
 - **Max Output**: 2MB per stream (stdout/stderr)
 
@@ -208,8 +217,9 @@ name = "shemcp"
 version = "0.2.0"
 
 [directories]
-# The root directory defaults to the user's home directory (~/)
-# Override with SHEMCP_ROOT environment variable if needed
+# The sandbox root defaults to the Git repository root (fallback to the current
+# working directory) and remains fixed for the process lifetime.
+# Override with SHEMCP_ROOT or MCP_SANDBOX_ROOT environment variables if needed.
 
 [commands]
 allow = ["^git(\\s|$)", "^npm(\\s|$)", "^make(\\s|$)"]
