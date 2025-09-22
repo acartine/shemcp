@@ -10,7 +10,11 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import pkg from "../package.json" with { type: "json" };
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+// Load package.json without using JSON import attributes (Node 18 compatible)
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pkg = require("../package.json");
 import type { Config } from "./config/index.js";
 import { ConfigLoader } from "./config/index.js";
 
