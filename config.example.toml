@@ -6,9 +6,15 @@ name = "shemcp"
 version = "0.2.0"
 
 [directories]
-# The root directory defaults to the user's home directory (~/)
-# This allows Claude to access any project under your user account
-# Override with SHEMCP_ROOT environment variable if needed
+# Sandbox root is derived at runtime in the following order:
+# 1) SHEMCP_ROOT or MCP_SANDBOX_ROOT environment variable (if set and exists)
+# 2) Nearest Git repository root from process.cwd()
+# 3) process.cwd() as a fallback
+#
+# Note: The TOML field below is currently ignored for sandbox selection; prefer
+# environment variables for explicit overrides. This key is reserved for
+# potential future static overrides.
+# root = "/absolute/path"  # Deprecated/ignored; use SHEMCP_ROOT or MCP_SANDBOX_ROOT
 
 [commands]
 # Regular expressions for allowed commands (case insensitive)
@@ -59,6 +65,7 @@ whitelist = [
 
 [security]
 # Whether to allow runtime policy changes via shell_set_policy tool
+# (Currently informational; the tool is always available in this version.)
 allow_runtime_policy_changes = true
 
 # Whether to enforce secure file permissions on config files (600/644)
