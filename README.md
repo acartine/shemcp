@@ -115,6 +115,19 @@ Update the security policy at runtime.
   - `max_bytes`: Maximum output size per stream
   - `env_whitelist`: Array of environment variables to pass through
 
+## Quick reference
+
+Ask your MCP client to call these tools with the following inputs:
+
+- `shell_info` examples:
+  - `{ "cwd": "." }` → returns `sandbox_root`, resolves to the root, and confirms within sandbox
+  - `{ "cwd": "src" }` → returns resolved `src` path and `within_sandbox: true` if it exists/inside
+
+- `shell_exec` examples:
+  - `{ "cmd": "git", "args": ["status"], "cwd": "." }`
+  - `{ "cmd": "npm", "args": ["test"], "cwd": "." }`
+  - `{ "cmd": "ls", "args": ["-la"], "cwd": "src" }`
+
 ## Quick Start
 
 ### 1) Install (npm)
