@@ -53,16 +53,39 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Get package version for release
-        if: steps.changesets.outputs.published == 'true'
-        id: package_version
+      - name: Detect if package was published
+        id: detect_publish
         run: |
-          VERSION=$(node -p "require('./package.json').version")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Package version: $VERSION"
+          # Check if this is a Release PR merge (commit message starts with "chore: release packages")
+          LAST_COMMIT_MSG=$(git log -1 --pretty=%s)
+          echo "Last commit: $LAST_COMMIT_MSG"
+
+          # Check the current and remote npm versions
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          NPM_VERSION=$(npm view shemcp version 2>/dev/null || echo "0.0.0")
+
+          echo "Current package.json version: $CURRENT_VERSION"
+          echo "Latest npm version: $NPM_VERSION"
+
+          # A package was published if either:
+          # 1. changesets says it published (direct push with changesets)
+          # 2. We just merged a Release PR and the versions now match
+          if [ "${{ steps.changesets.outputs.published }}" == "true" ]; then
+            echo "Changesets reports packages were published"
+            echo "published=true" >> $GITHUB_OUTPUT
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          elif [[ "$LAST_COMMIT_MSG" == "chore: release packages"* ]] && [ "$CURRENT_VERSION" == "$NPM_VERSION" ]; then
+            echo "Release PR was merged and package is now published"
+            echo "published=true" >> $GITHUB_OUTPUT
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "No package publish detected"
+            echo "published=false" >> $GITHUB_OUTPUT
+          fi
+
 
       - name: Publish to GitHub Packages
-        if: steps.changesets.outputs.published == 'true'
+        if: steps.detect_publish.outputs.published == 'true'
         run: |
           # Update package name for GitHub Packages (scoped to owner)
           npm pkg set name='@acartine/shemcp'
@@ -76,11 +99,11 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
       - name: Extract changelog for release
-        if: steps.changesets.outputs.published == 'true'
+        if: steps.detect_publish.outputs.published == 'true'
         id: changelog
         run: |
           # Extract the latest version section from CHANGELOG.md
-          VERSION="${{ steps.package_version.outputs.version }}"
+          VERSION="${{ steps.detect_publish.outputs.version }}"
           echo "Extracting changelog for version $VERSION"
           
           # Find the section for this version and extract until the next version
@@ -97,15 +120,15 @@ jobs:
           echo "EOF" >> $GITHUB_ENV
           
       - name: Create GitHub Release
-        if: steps.changesets.outputs.published == 'true'
+        if: steps.detect_publish.outputs.published == 'true'
         uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ steps.package_version.outputs.version }}
-          name: 🚀 Release v${{ steps.package_version.outputs.version }}
+          tag_name: v${{ steps.detect_publish.outputs.version }}
+          name: 🚀 Release v${{ steps.detect_publish.outputs.version }}
           body: |
-            ## 📦 What's New in v${{ steps.package_version.outputs.version }}
+            ## 📦 What's New in v${{ steps.detect_publish.outputs.version }}
             
             ${{ env.RELEASE_NOTES }}
             
@@ -113,7 +136,7 @@ jobs:
             
             - **npm Package**: [shemcp](https://www.npmjs.com/package/shemcp)
             - **Repository**: [acartine/shemcp](https://github.com/acartine/shemcp)
-            - **Version**: v${{ steps.package_version.outputs.version }}
+            - **Version**: v${{ steps.detect_publish.outputs.version }}
             - **License**: MIT
             
             ## 🚀 Installation
