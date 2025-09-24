@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.6
+
+### Patch Changes
+
+- [#36](https://github.com/acartine/shemcp/pull/36) [`3a8bd38`](https://github.com/acartine/shemcp/commit/3a8bd38fb32c79b7152266ebde5e6becc2ab1551) Thanks [@acartine](https://github.com/acartine)! - Make GitHub Packages publish non-blocking
+
+  The GitHub Packages publish step now continues on error to ensure GitHub Release creation happens even if GitHub Packages fails. This is important because GitHub Packages can fail for permission reasons (e.g., trying to create an org package for a user account) but we still want the GitHub Release to be created.
+
 ## 0.7.5
 
 ### Patch Changes
