@@ -2,9 +2,14 @@ import { z } from "zod";
 import * as os from "node:os";
 
 export const ConfigSchema = z.object({
+  // Optional configuration format version (not the package version).
+  // Reserved for future migrations/compat and currently informational.
+  config_version: z.number().int().min(1).default(1),
+
   server: z.object({
     name: z.string().default("shemcp"),
-    version: z.string().default("0.2.0"),
+    // version is sourced from package.json at runtime; keep optional to avoid confusion
+    version: z.string().optional(),
   }).default({}),
 
   directories: z.object({
@@ -34,9 +39,9 @@ export const ConfigSchema = z.object({
 export type Config = z.infer<typeof ConfigSchema>;
 
 export const DEFAULT_CONFIG: Config = {
+  config_version: 1,
   server: {
     name: "shemcp",
-    version: "0.2.0",
   },
   directories: {
     root: os.homedir(),

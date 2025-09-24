@@ -46,6 +46,11 @@ export class ConfigLoader {
 
     // Validate the final merged config
     const validated = ConfigSchema.parse(mergedConfig);
+
+    // Minimal guard for future format versions
+    if (validated.config_version && validated.config_version !== 1) {
+      console.warn(`Warning: Unsupported config_version ${validated.config_version}; proceeding with best-effort parsing as version 1.`);
+    }
     
     // Expand paths and compile patterns
     return this.postProcessConfig(validated);

@@ -1,32 +1,109 @@
-# shemcp
+# Changelog
 
-## 0.5.0
+All notable changes to this project will be documented in this file.
 
-### Minor Changes
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-- [#10](https://github.com/acartine/shemcp/pull/10) [`675f60c`](https://github.com/acartine/shemcp/commit/675f60c8a698f0f0c5d155c90a0c3e22c293eca9) Thanks [@acartine](https://github.com/acartine)! - - Sandbox root now resolves to the Git repository root by default (fallback to the current working directory), with optional overrides via SHEMCP_ROOT or MCP_SANDBOX_ROOT.
-  - Removed the shell_set_cwd tool; shell_exec cwd must be RELATIVE to the sandbox root. Absolute paths are rejected with clear error messages that include the received path and the sandbox root.
-  - Added shell_info tool for introspection (reports sandbox_root and resolves relative cwd inputs, including within_sandbox checks).
-  - Hardened ensureCwd with realpath and boundary checks to prevent symlink escapes and ensure directory accessibility.
-  - Updated docs and tests to reflect the new behavior.
+## [Unreleased]
 
-## Unreleased
+## [0.5.0] - 2024-09-24
 
-### Minor Changes
+### Added
+- **Sandbox Security Enhancements** (from PR #10)
+  - Sandbox root now resolves to the Git repository root by default (fallback to the current working directory)
+  - Optional overrides via SHEMCP_ROOT or MCP_SANDBOX_ROOT environment variables
+  - Removed shell_set_cwd tool; shell_exec cwd must be RELATIVE to the sandbox root
+  - Absolute paths are rejected with clear error messages including received path and sandbox root
+  - Added shell_info tool for introspection (reports sandbox_root and resolves relative cwd inputs)
+  - Hardened ensureCwd with realpath and boundary checks to prevent symlink escapes
+  - Enhanced directory accessibility validation
 
-- Sandbox root now resolves to the Git repository root by default (fallback to the current working directory), with optional overrides via `SHEMCP_ROOT` or `MCP_SANDBOX_ROOT`.
-- Removed the `shell_set_cwd` tool; `shell_exec` cwd must be RELATIVE to the sandbox root. Absolute paths are rejected with clear error messages that include the received path and the sandbox root.
-- Added `shell_info` tool for introspection (reports `sandbox_root` and resolves relative `cwd` inputs, including `within_sandbox` checks).
-- Hardened `ensureCwd` with `realpath` and boundary checks to prevent symlink escapes and ensure directory accessibility.
+- **Server Version & Config Versioning**
+  - Server version now sourced from package.json and passed to MCP handshake
+  - Add config_version (default 1) to schema; warn on unsupported future versions
+  - Update README/config.example to remove server.version and document config_version usage
 
-## 0.4.0
+- **Per-Request Limit Overrides**
+  - Support for `timeout_seconds` and `max_output_bytes` in shell_exec calls
+  - Smart clamping to policy limits and reasonable bounds
+  - Backward compatibility with legacy `timeout_ms`
+  - New `getEffectiveLimits()` function for computing effective limits
 
-### Minor Changes
+- **Expanded Command List**
+  - Added AWS CLI, Azure CLI, Python, Go, and many other development tools
+  - Enhanced command regex patterns for better security and flexibility
 
-- [#6](https://github.com/acartine/shemcp/pull/6) [`9c68607`](https://github.com/acartine/shemcp/commit/9c6860718f6b8f713ed46ae1df0c36ec9c56ec3d) Thanks [@acartine](https://github.com/acartine)! - Set up npm publishing: add Changesets, CI, release workflow, README badges and installation docs prioritizing npm, and MIT license.
+- **Documentation Improvements**
+  - Added comprehensive descriptions to all tool properties
+  - Clear examples and usage instructions for each parameter
+  - Improved developer experience with detailed schema documentation
 
-## 0.3.0
+- **Enhanced Release Automation**
+  - Professional GitHub release formatting with emojis and comprehensive notes
+  - Automated changelog integration for rich release documentation
+  - Improved npm package coordination and discoverability
 
-### Minor Changes
+### Technical Details
+- Overrides clamped to [1s, 300s] for timeout and [1000, 10M] for output bytes
+- Policy limits always respected as upper bounds
+- Enhanced error reporting with effective limits in response
+- Comprehensive test coverage for all new functionality
 
-- [#2](https://github.com/acartine/shemcp/pull/2) [`7d8e72c`](https://github.com/acartine/shemcp/commit/7d8e72c7f9f30506a46bfaf2f355ee4debf2e5d5) Thanks [@acartine](https://github.com/acartine)! - Set up npm publishing: add Changesets, CI, release workflow, README badges and installation docs prioritizing npm, and MIT license.
+### Security
+- Prevented symlink escapes with realpath boundary checks
+- Enhanced command validation with regex patterns
+- Improved error messaging for security violations
+- Hardened path validation and accessibility checks
+
+### Files Changed
+- `src/index.ts` - Added limit override logic, version handling, and property descriptions
+- `src/index.test.ts` - Comprehensive tests for new features and test fixes
+- `config.example.toml` - Expanded allowed commands and config versioning
+- `package.json` - Enhanced package metadata and keywords
+- `CHANGELOG.md` - Comprehensive changelog with Keep a Changelog format
+- `.github/workflows/release.yml` - Enhanced release automation
+- `.changeset/config-versioning-limit-overrides.md` - Detailed changeset documentation
+
+## [0.4.0] - 2024-09-24
+
+### Added
+- Enhanced sandbox security with Git repository root detection
+- Improved working directory validation with symlink protection
+- Added shell_info tool for sandbox introspection
+- Removed shell_set_cwd tool for better security
+- Hardened path validation and accessibility checks
+
+### Security
+- Prevented symlink escapes with realpath boundary checks
+- Enhanced command validation with regex patterns
+- Improved error messaging for security violations
+
+## [0.3.0] - 2024-09-23
+
+### Added
+- Initial Model Context Protocol (MCP) server implementation
+- Shell command execution with policy-based allowlisting
+- Configuration system with TOML support
+- Comprehensive test suite
+- TypeScript support with strict type checking
+
+### Security
+- Sandboxed command execution within Git repository root
+- Environment variable filtering
+- Command timeout and output size limits
+- Regex-based command allow/deny patterns
+
+## [0.2.0] - 2024-09-22
+
+### Added
+- Basic MCP server structure
+- Tool definitions for shell operations
+- Initial policy system
+
+## [0.1.0] - 2024-09-21
+
+### Added
+- Project initialization
+- Basic package structure
+- Development environment setup

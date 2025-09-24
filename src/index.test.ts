@@ -10,7 +10,8 @@ import {
   tools,
   server,
   createPolicyFromConfig,
-  setConfigForTesting
+  setConfigForTesting,
+  getEffectiveLimits
 } from './index.js';
 import { DEFAULT_CONFIG } from './config/schema.js';
 import type { Policy } from './index.js';
@@ -166,11 +167,57 @@ describe('MCP Shell Server', () => {
       expect(policyTool).toBeDefined();
       expect(policyTool?.inputSchema.properties?.allow_patterns).toBeDefined();
       expect(policyTool?.inputSchema.properties?.timeout_ms).toBeDefined();
+
+      // New per-request override properties should exist
+      expect(execTool?.inputSchema.properties?.timeout_seconds).toBeDefined();
+      expect(execTool?.inputSchema.properties?.max_output_bytes).toBeDefined();
     });
 
     it('should reject absolute cwd in shell_exec description', () => {
       const execTool = tools.find(t => t.name === "shell_exec");
       expect(execTool?.description?.toLowerCase()).toContain("relative");
+    });
+  });
+
+  describe('Per-request limit overrides', () => {
+    it('should prefer timeout_seconds over legacy timeout_ms and clamp to policy', () => {
+      const policy = createPolicyFromConfig({
+        ...DEFAULT_CONFIG,
+        limits: { timeout_seconds: 60, max_output_bytes: 2_000_000 },
+        directories: { root: '/home/testuser' }
+      });
+      // If timeout_seconds provided lower than policy
+      let res = getEffectiveLimits({ timeout_seconds: 10 }, policy);
+      expect(res.effectiveTimeoutMs).toBe(10_000);
+
+      // If timeout_seconds provided higher than policy, cap at policy
+      res = getEffectiveLimits({ timeout_seconds: 120 }, policy);
+      expect(res.effectiveTimeoutMs).toBe(60_000);
+
+      // Legacy timeout_ms respected when seconds not provided, and capped
+      res = getEffectiveLimits({ timeout_ms: 5_000 }, policy);
+      expect(res.effectiveTimeoutMs).toBe(5_000);
+      res = getEffectiveLimits({ timeout_ms: 120_000 }, policy);
+      expect(res.effectiveTimeoutMs).toBe(60_000);
+    });
+
+    it('should cap max_output_bytes to policy max when provided', () => {
+      const policy = createPolicyFromConfig({
+        ...DEFAULT_CONFIG,
+        limits: { timeout_seconds: 60, max_output_bytes: 1_000_000 },
+        directories: { root: '/home/testuser' }
+      });
+      // Lower than policy
+      let res = getEffectiveLimits({ max_output_bytes: 500_000 }, policy);
+      expect(res.effectiveMaxBytes).toBe(500_000);
+
+      // Higher than policy should clamp to policy
+      res = getEffectiveLimits({ max_output_bytes: 5_000_000 }, policy);
+      expect(res.effectiveMaxBytes).toBe(1_000_000);
+
+      // Missing should equal policy
+      res = getEffectiveLimits({}, policy);
+      expect(res.effectiveMaxBytes).toBe(1_000_000);
     });
   });
 
@@ -184,7 +231,8 @@ describe('MCP Shell Server', () => {
     it('should have correct server info from config', () => {
       const serverInfo = server['_serverInfo'];
       expect(serverInfo.name).toBe(config.server.name);
-      expect(serverInfo.version).toBe(config.server.version);
+      // Version should come from package.json, not config
+      expect(serverInfo.version).toMatch(/^\d+\.\d+\.\d+$/);
     });
 
     it('should convert config to policy correctly', () => {

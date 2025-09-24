@@ -10,6 +10,11 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+// Load package.json without using JSON import attributes (Node 18 compatible)
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pkg = require("../package.json");
 import type { Config } from "./config/index.js";
 import { ConfigLoader } from "./config/index.js";
 
@@ -117,7 +122,8 @@ function deriveSandboxRoot(): string {
 const derivedRoot = deriveSandboxRoot();
 policy.rootDirectory = derivedRoot;
 debugLog("Derived sandbox root", { derivedRoot });
-debugLog("Config loaded", { configName: config.server.name, version: config.server.version });
+const PKG_VERSION: string = (pkg as any).version ?? "0.0.0";
+debugLog("Config loaded", { configName: config.server.name, serverVersion: PKG_VERSION });
 
 // Export functions for testing
 export { config, policy, createPolicyFromConfig };
@@ -179,6 +185,34 @@ export function filteredEnv(testPolicy?: Policy): NodeJS.ProcessEnv {
   return out;
 }
 
+// Compute effective per-call limits from request input and global policy
+export function getEffectiveLimits(input: any, testPolicy?: Policy): { effectiveTimeoutMs: number; effectiveMaxBytes: number } {
+  const currentPolicy = testPolicy || policy;
+  // Back-compat: allow legacy timeout_ms, but prefer timeout_seconds if present
+  const providedTimeoutMs = typeof input?.timeout_ms === 'number' ? input.timeout_ms : undefined;
+  const providedTimeoutSeconds = typeof input?.timeout_seconds === 'number' ? input.timeout_seconds : undefined;
+  let effectiveTimeoutMs = currentPolicy.timeoutMs;
+  if (typeof providedTimeoutSeconds === 'number') {
+    // clamp to [1s, 300s] and also not exceed policy limit
+    const seconds = Math.max(1, Math.min(300, Math.floor(providedTimeoutSeconds)));
+    effectiveTimeoutMs = Math.min(seconds * 1000, currentPolicy.timeoutMs);
+  } else if (typeof providedTimeoutMs === 'number') {
+    // clamp to [1ms, policy.timeoutMs]
+    const ms = Math.max(1, Math.min(providedTimeoutMs, 300000));
+    effectiveTimeoutMs = Math.min(ms, currentPolicy.timeoutMs);
+  }
+
+  // max_output_bytes override with clamp [1000, 10_000_000] but not exceed policy cap
+  const providedMaxBytes = typeof input?.max_output_bytes === 'number' ? input.max_output_bytes : undefined;
+  let effectiveMaxBytes = currentPolicy.maxBytes;
+  if (typeof providedMaxBytes === 'number') {
+    const clamped = Math.max(1000, Math.min(10_000_000, Math.floor(providedMaxBytes)));
+    effectiveMaxBytes = Math.min(clamped, currentPolicy.maxBytes);
+  }
+
+  return { effectiveTimeoutMs, effectiveMaxBytes };
+}
+
 export async function execOnce(cmd: string, args: string[], cwd: string, timeoutMs: number, maxBytes: number) {
   const child = spawn(cmd, args, { cwd, env: filteredEnv(), stdio: ["ignore", "pipe", "pipe"] });
   let stdout = Buffer.alloc(0);
@@ -213,7 +247,7 @@ export async function execOnce(cmd: string, args: string[], cwd: string, timeout
 
 /** ---------- MCP server & tools ---------- */
 export const server = new Server(
-  { name: config.server.name, version: config.server.version },
+  { name: config.server.name, version: PKG_VERSION },
   { capabilities: { tools: {} } }
 );
 debugLog("Server instance created");
@@ -226,10 +260,14 @@ export const tools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        cmd: { type: "string", minLength: 1 },
-        args: { type: "array", items: { type: "string" }, default: [] },
+        cmd: { type: "string", minLength: 1, description: "The command to execute (e.g., 'git', 'npm', 'python')" },
+        args: { type: "array", items: { type: "string" }, default: [], description: "Command arguments as an array of strings (e.g., ['status', '--short'])" },
         cwd: { type: "string", description: "Relative path from sandbox root (no absolute paths)" },
-        timeout_ms: { type: "number", minimum: 1, maximum: 300000 }
+        // Deprecated: prefer timeout_seconds; kept for backward-compat
+        timeout_ms: { type: "number", minimum: 1, maximum: 300000, description: "Command timeout in milliseconds (deprecated, use timeout_seconds instead)" },
+        // New optional per-request overrides
+        timeout_seconds: { type: "number", minimum: 1, maximum: 300, description: "Command timeout in seconds (1-300, will be clamped to policy limits)" },
+        max_output_bytes: { type: "number", minimum: 1000, maximum: 10000000, description: "Maximum output size in bytes (1000-10M, will be clamped to policy limits)" }
       },
       required: ["cmd"]
     }
@@ -240,7 +278,7 @@ export const tools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        cwd: { type: "string", description: "Optional relative cwd to resolve against sandbox root" }
+        cwd: { type: "string", description: "Optional relative path to resolve and check against sandbox root" }
       }
     }
   },
@@ -250,11 +288,11 @@ export const tools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        allow_patterns: { type: "array", items: { type: "string" } },
-        deny_patterns: { type: "array", items: { type: "string" } },
-        timeout_ms: { type: "number", minimum: 1, maximum: 300000 },
-        max_bytes: { type: "number", minimum: 1000, maximum: 10000000 },
-        env_whitelist: { type: "array", items: { type: "string" } }
+        allow_patterns: { type: "array", items: { type: "string" }, description: "Regex patterns for allowed commands (e.g., ['^git(\\s|$)', '^npm(\\s|$)'])" },
+        deny_patterns: { type: "array", items: { type: "string" }, description: "Regex patterns for explicitly denied commands (checked after allow list)" },
+        timeout_ms: { type: "number", minimum: 1, maximum: 300000, description: "Global timeout for commands in milliseconds (1-300000)" },
+        max_bytes: { type: "number", minimum: 1000, maximum: 10000000, description: "Global maximum output size per stream in bytes (1000-10M)" },
+        env_whitelist: { type: "array", items: { type: "string" }, description: "Environment variable names to forward to executed commands" }
       }
     }
   }
@@ -290,8 +328,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
     }
 
-    const tmo = Math.min(input.timeout_ms ?? policy.timeoutMs, policy.timeoutMs);
-  const res = await execOnce(input.cmd, input.args || [], resolvedCwd, tmo, policy.maxBytes);
+    // Compute effective per-request limits
+    const { effectiveTimeoutMs, effectiveMaxBytes } = getEffectiveLimits(input, policy);
+    const res = await execOnce(input.cmd, input.args || [], resolvedCwd, effectiveTimeoutMs, effectiveMaxBytes);
 
     return {
       content: [{
@@ -306,7 +345,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             stdout: res.stdout,
             stderr: res.stderr,
             cmdline: [input.cmd, ...(input.args || [])],
-            cwd: resolvedCwd
+            cwd: resolvedCwd,
+            limits: {
+              timeout_ms: effectiveTimeoutMs,
+              max_output_bytes: effectiveMaxBytes
+            }
           }, null, 2)
         }
       }]

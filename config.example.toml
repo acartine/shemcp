@@ -1,9 +1,10 @@
 # Example configuration file for shemcp (MCP Shell Server)
 # Copy this to ~/.config/shemcp/config.toml and customize as needed
 
+config_version = 1  # Configuration format version (not the package version)
+
 [server]
-name = "shemcp"
-version = "0.2.0"
+name = "shemcp"  # Server identity shown to MCP clients; version comes from package.json
 
 [directories]
 # Sandbox root is derived at runtime in the following order:
@@ -19,21 +20,45 @@ version = "0.2.0"
 [commands]
 # Regular expressions for allowed commands (case insensitive)
 allow = [
-    "^git(\\s|$)",         # Git commands
-    "^gh(\\s|$)",          # GitHub CLI
-    "^make(\\s|$)",        # Make build tool
-    "^npm(\\s|$)",         # Node package manager
-    "^yarn(\\s|$)",        # Yarn package manager
-    "^grep(\\s|$)",        # Search text
-    "^find(\\s|$)",        # Find files
-    "^ls(\\s|$)",          # List files
-    "^pwd(\\s|$)",         # Print working directory
-    "^echo(\\s|$)",        # Echo text
+    "^aws(\\s|$)",
+    "^az(\\s|$)",
     "^cat(\\s|$)",         # Display file contents
-    "^head(\\s|$)",        # Show file beginning
-    "^tail(\\s|$)",        # Show file end
+    "^cat(\\s|$)",         # Display file contents
+    "^cd(\\s|$)",
+    "^cwd(\\s|$)",         # Change/query working directory (custom)
     "^curl(\\s|$)",        # HTTP client
+    "^echo(\\s|$)",        # Echo text
+    "^find(\\s|$)",        # Find files
+    "^for(\\s|$)",
+    "^gh(\\s|$)",          # GitHub CLI
+    "^git(\\s|$)",         # Git commands
+    "^go(\\s|$)",
+    "^grep(\\s|$)",        # Search text
+    "^head(\\s|$)",        # Show file beginning
+    "^ls(\\s|$)",          # List files
+    "^make(\\s|$)",        # Make build tool
+    "^mkdir(\\s|$)",
+    "^node(\\s|$)",
+    "^npm(\\s|$)",         # Node package manager
+    "^npx(\\s|$)",
+    "^nslookup(\\s|$)",
+    "^openssl(\\s|$)",
+    "^poetry(\\s|$)",
+    "^ps(\\s|$)",
+    "^pwd(\\s|$)",         # Print working directory
+    "^python(\\s|$)",
+    "^python3(\\s|$)",
+    "^sleep(\\s|$)",
+    "^tail(\\s|$)",        # Show file end
+    "^task(\\s|$)",        # Task runner
+    "^terraform(\\s|$)",
+    "^test(\\s|$)",
+    "^timeout(\\s|$)",
+    "^tsc(\\s|$)",
+    "^unzip(\\s|$)",
     "^wget(\\s|$)",        # Web downloader
+    "^yarn(\\s|$)",        # Yarn package manager
+    "^zip(\\s|$)",
 ]
 
 # Regular expressions for explicitly denied commands (checked after allow list)
@@ -50,6 +75,10 @@ timeout_seconds = 60
 
 # Maximum output size per stream in bytes (1KB - 10MB)
 max_output_bytes = 2000000
+
+# Note: Clients can override these per command using shell_exec input:
+#   { "timeout_seconds": 300, "max_output_bytes": 5000000 }
+# Overrides are clamped by the configured maxima above and any server caps.
 
 [environment]
 # Environment variables to pass through to commands
