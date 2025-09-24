@@ -24,6 +24,10 @@ allow = [
     "^aws(\\s|$)",
     "^az(\\s|$)",
     "^cat(\\s|$)",         # Display file contents
+<<<<<<< HEAD
+=======
+    "^cat(\\s|$)",         # Display file contents
+>>>>>>> 9567ffa (Add per-request limit overrides and expand command list)
     "^cd(\\s|$)",
     "^cwd(\\s|$)",         # Change/query working directory (custom)
     "^curl(\\s|$)",        # HTTP client
