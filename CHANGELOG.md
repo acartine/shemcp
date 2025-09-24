@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.3
+
+### Patch Changes
+
+- [#30](https://github.com/acartine/shemcp/pull/30) [`c3db634`](https://github.com/acartine/shemcp/commit/c3db634c3a2472a39b6fe66f07c942636b941095) Thanks [@acartine](https://github.com/acartine)! - Fix GitHub Packages authentication in Release workflow
+
+  Corrects the npm authentication method for GitHub Packages publishing. The previous approach of appending to ~/.npmrc conflicted with the setup-node action's configuration, causing authentication failures.
+
+  This fix:
+
+  - Uses `npm config set` instead of direct file manipulation
+  - Ensures proper authentication token configuration
+  - Will enable GitHub Packages publication for all future releases
+
+  Testing with v0.7.3 release to verify:
+
+  - GitHub Release creation works
+  - GitHub Packages publication succeeds
+
 ## 0.7.2
 
 ### Patch Changes
