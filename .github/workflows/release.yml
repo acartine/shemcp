@@ -118,3 +118,67 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: false
+
+  auto-merge-release-pr:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Wait for release PR to be created
+        run: |
+          echo "Waiting for release PR to be created..."
+          sleep 30  # Give changesets time to create the PR
+          
+      - name: Find and auto-merge release PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Searching for release PR..."
+          
+          # Find the release PR created by changesets
+          RELEASE_PR_NUMBER=$(gh pr list --repo ${{ github.repository }} --state open --search "Release: Update versions and publish to npm" --json number --jq '.[0].number')
+          
+          if [ -n "$RELEASE_PR_NUMBER" ]; then
+            echo "Found release PR #$RELEASE_PR_NUMBER"
+            
+            # Wait a bit more for any CI checks to start
+            echo "Waiting for CI checks to begin..."
+            sleep 30
+            
+            # Auto-merge the PR
+            echo "Auto-merging release PR #$RELEASE_PR_NUMBER..."
+            gh pr merge $RELEASE_PR_NUMBER --squash --auto --delete-branch
+            
+            echo "✅ Release PR #$RELEASE_PR_NUMBER auto-merged successfully!"
+          else
+            echo "No release PR found - this might be a direct publish scenario"
+          fi
+
+  monitor-auto-merge:
+    needs: auto-merge-release-pr
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    if: always()
+    steps:
+      - name: Monitor auto-merge status
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Monitoring auto-merge status..."
+          
+          # Find the most recent release PR
+          RELEASE_PR_NUMBER=$(gh pr list --repo ${{ github.repository }} --state merged --search "Release: Update versions and publish to npm" --json number --jq '.[0].number' || echo "")
+          
+          if [ -n "$RELEASE_PR_NUMBER" ]; then
+            echo "✅ Release process completed successfully!"
+            echo "Release PR #$RELEASE_PR_NUMBER was merged"
+          else
+            echo "ℹ️  No release PR was merged - changes were published directly"
+          fi
+          
+          echo "🎉 Release automation complete!"
