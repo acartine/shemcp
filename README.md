@@ -34,6 +34,7 @@ The chosen root remains fixed for the duration of the process. All working direc
 This ensures that if the client happens to start the agent several levels deep, the sandbox still resolves to the project root (typically the Git root), preventing the MCP from becoming unable to access sibling paths in the repository.
 
 You can explicitly override the root for special cases with SHEMCP_ROOT or MCP_SANDBOX_ROOT.
+
 ## Features
 
 - **📋 TOML Configuration**: Easy-to-edit configuration files with validation
@@ -225,7 +226,7 @@ The server loads configuration from:
 ### Configuration Structure
 
 ```toml
-[# Configuration format version (not the package version)]
+# Configuration format version (not the package version)
 config_version = 1
 
 [server]

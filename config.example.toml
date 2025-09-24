@@ -1,7 +1,8 @@
 # Example configuration file for shemcp (MCP Shell Server)
 # Copy this to ~/.config/shemcp/config.toml and customize as needed
 
-config_version = 1  # Configuration format version (not the package version)
+# Configuration format version (not the package version)
+config_version = 1
 
 [server]
 name = "shemcp"  # Server identity shown to MCP clients; version comes from package.json
@@ -22,7 +23,6 @@ name = "shemcp"  # Server identity shown to MCP clients; version comes from pack
 allow = [
     "^aws(\\s|$)",
     "^az(\\s|$)",
-    "^cat(\\s|$)",         # Display file contents
     "^cat(\\s|$)",         # Display file contents
     "^cd(\\s|$)",
     "^cwd(\\s|$)",         # Change/query working directory (custom)
