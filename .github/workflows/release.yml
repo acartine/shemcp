@@ -77,12 +77,11 @@ jobs:
       - name: Publish to GitHub Packages
         if: steps.publish_check.outputs.published == 'true'
         run: |
-          # Configure npm for GitHub Packages
-          echo "@acartine:registry=https://npm.pkg.github.com" >> ~/.npmrc
-          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> ~/.npmrc
-
           # Update package name for GitHub Packages (scoped to owner)
           npm pkg set name='@acartine/shemcp'
+
+          # Configure authentication for GitHub Packages
+          npm config set //npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}
 
           # Publish to GitHub Packages
           npm publish --registry=https://npm.pkg.github.com --access public
