@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.1
+
+### Patch Changes
+
+- [#26](https://github.com/acartine/shemcp/pull/26) [`1d89b09`](https://github.com/acartine/shemcp/commit/1d89b09f05045d1f990cb98cccb3454353fb325a) Thanks [@acartine](https://github.com/acartine)! - Add changeset reminder workflow for PRs
+
+  Added a GitHub Action that automatically checks pull requests for changeset files and posts a helpful comment when none are found. This helps contributors and automated agents understand when a PR will or won't trigger a release.
+
+  Features:
+
+  - Automatically comments on PRs without changesets
+  - Explains what changesets are and why they matter
+  - Lists which types of changes need changesets
+  - Non-blocking - just provides information
+  - Updates existing comment instead of creating duplicates
+
 ## 0.7.0
 
 ### Minor Changes
