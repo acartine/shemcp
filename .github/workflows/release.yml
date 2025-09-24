@@ -135,10 +135,9 @@ jobs:
           
       - name: Find and auto-merge release PR
         env:
-          # Note: Using GITHUB_TOKEN here means the merge won't trigger workflows.
-          # To have the merge trigger the release workflow again, you'd need to use
-          # a Personal Access Token (PAT) stored as a secret instead.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Using RELEASE_TOKEN (PAT) instead of GITHUB_TOKEN so the merge
+          # will trigger the Release workflow again for actual publishing
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           echo "Searching for release PR..."
           
