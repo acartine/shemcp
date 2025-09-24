@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.7
+
+### Patch Changes
+
+- [#38](https://github.com/acartine/shemcp/pull/38) [`c08df6f`](https://github.com/acartine/shemcp/commit/c08df6fd32579f5f6031714419e9e736eaae9552) Thanks [@acartine](https://github.com/acartine)! - Remove GitHub Packages publishing from release workflow
+
+  GitHub Packages doesn't support publishing for user accounts (only organizations), so removing this step to keep the workflow clean and avoid unnecessary error messages.
+
 ## 0.7.6
 
 ### Patch Changes
