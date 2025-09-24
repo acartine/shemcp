@@ -1,0 +1,120 @@
+name: Changeset Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check-changeset:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for changeset
+        id: changeset
+        run: |
+          # Check if there are any changeset files (excluding README)
+          CHANGESET_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '^\.changeset/.*\.md$' | grep -v README.md || true)
+
+          if [ -n "$CHANGESET_FILES" ]; then
+            echo "has_changeset=true" >> $GITHUB_OUTPUT
+            echo "Found changeset files:"
+            echo "$CHANGESET_FILES"
+          else
+            echo "has_changeset=false" >> $GITHUB_OUTPUT
+            echo "No changeset files found"
+          fi
+
+      - name: Comment on PR
+        if: steps.changeset.outputs.has_changeset == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = context.issue.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // Check if we've already commented
+            const comments = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number: prNumber,
+            });
+
+            const botComment = comments.data.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('🔔 **Changeset Reminder**')
+            );
+
+            const commentBody = `🔔 **Changeset Reminder**
+
+            This PR does not include a changeset file. This is just a friendly reminder that without a changeset:
+            - ⚠️ No release will be created when this PR is merged
+            - 📦 No version bump will occur
+            - 📝 No changelog entry will be generated
+
+            **If this PR should trigger a release**, please add a changeset by:
+            1. Running \`npx changeset\` locally
+            2. Following the prompts to describe your changes
+            3. Committing and pushing the generated changeset file
+
+            **If this PR should NOT trigger a release** (e.g., documentation, CI changes, refactoring), you can safely ignore this message.
+
+            <details>
+            <summary>Types of changes that typically need changesets</summary>
+
+            - ✨ New features
+            - 🐛 Bug fixes
+            - 💥 Breaking changes
+            - 🔧 Configuration changes that affect users
+            - 📦 Dependency updates that affect functionality
+
+            </details>
+
+            <details>
+            <summary>Types of changes that typically DON'T need changesets</summary>
+
+            - 📝 Documentation updates
+            - 🎨 Code formatting/style changes
+            - ✅ Test additions or modifications
+            - 🔧 CI/CD workflow changes
+            - 🏗️ Internal refactoring with no user impact
+
+            </details>
+
+            ---
+            *This is an automated reminder. Feel free to ignore if irrelevant.*`;
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: botComment.id,
+                body: commentBody,
+              });
+              console.log('Updated existing changeset reminder comment');
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: prNumber,
+                body: commentBody,
+              });
+              console.log('Created new changeset reminder comment');
+            }
+
+      - name: Report status
+        if: always()
+        run: |
+          if [ "${{ steps.changeset.outputs.has_changeset }}" == "true" ]; then
+            echo "✅ Changeset found - this PR will trigger a release when merged"
+          else
+            echo "ℹ️ No changeset found - this PR will not trigger a release when merged"
+          fi
