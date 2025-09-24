@@ -260,14 +260,14 @@ export const tools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        cmd: { type: "string", minLength: 1 },
-        args: { type: "array", items: { type: "string" }, default: [] },
+        cmd: { type: "string", minLength: 1, description: "The command to execute (e.g., 'git', 'npm', 'python')" },
+        args: { type: "array", items: { type: "string" }, default: [], description: "Command arguments as an array of strings (e.g., ['status', '--short'])" },
         cwd: { type: "string", description: "Relative path from sandbox root (no absolute paths)" },
         // Deprecated: prefer timeout_seconds; kept for backward-compat
-        timeout_ms: { type: "number", minimum: 1, maximum: 300000 },
+        timeout_ms: { type: "number", minimum: 1, maximum: 300000, description: "Command timeout in milliseconds (deprecated, use timeout_seconds instead)" },
         // New optional per-request overrides
-        timeout_seconds: { type: "number", minimum: 1, maximum: 300 },
-        max_output_bytes: { type: "number", minimum: 1000, maximum: 10000000 }
+        timeout_seconds: { type: "number", minimum: 1, maximum: 300, description: "Command timeout in seconds (1-300, will be clamped to policy limits)" },
+        max_output_bytes: { type: "number", minimum: 1000, maximum: 10000000, description: "Maximum output size in bytes (1000-10M, will be clamped to policy limits)" }
       },
       required: ["cmd"]
     }
@@ -278,7 +278,7 @@ export const tools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        cwd: { type: "string", description: "Optional relative cwd to resolve against sandbox root" }
+        cwd: { type: "string", description: "Optional relative path to resolve and check against sandbox root" }
       }
     }
   },
@@ -288,11 +288,11 @@ export const tools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        allow_patterns: { type: "array", items: { type: "string" } },
-        deny_patterns: { type: "array", items: { type: "string" } },
-        timeout_ms: { type: "number", minimum: 1, maximum: 300000 },
-        max_bytes: { type: "number", minimum: 1000, maximum: 10000000 },
-        env_whitelist: { type: "array", items: { type: "string" } }
+        allow_patterns: { type: "array", items: { type: "string" }, description: "Regex patterns for allowed commands (e.g., ['^git(\\s|$)', '^npm(\\s|$)'])" },
+        deny_patterns: { type: "array", items: { type: "string" }, description: "Regex patterns for explicitly denied commands (checked after allow list)" },
+        timeout_ms: { type: "number", minimum: 1, maximum: 300000, description: "Global timeout for commands in milliseconds (1-300000)" },
+        max_bytes: { type: "number", minimum: 1000, maximum: 10000000, description: "Global maximum output size per stream in bytes (1000-10M)" },
+        env_whitelist: { type: "array", items: { type: "string" }, description: "Environment variable names to forward to executed commands" }
       }
     }
   }
