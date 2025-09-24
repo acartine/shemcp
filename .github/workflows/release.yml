@@ -53,29 +53,16 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Check if package was published
-        id: publish_check
+      - name: Get package version for release
+        if: steps.changesets.outputs.published == 'true'
+        id: package_version
         run: |
-          # Get the current version from package.json
-          CURRENT_VERSION=$(node -p "require('./package.json').version")
-          echo "Current version: $CURRENT_VERSION"
-
-          # Check if this version exists on npm
-          NPM_VERSION=$(npm view shemcp version 2>/dev/null || echo "")
-          echo "Latest npm version: $NPM_VERSION"
-
-          # If versions match, a publish happened (either just now or very recently)
-          if [ "$CURRENT_VERSION" = "$NPM_VERSION" ]; then
-            echo "Package version $CURRENT_VERSION was published!"
-            echo "published=true" >> $GITHUB_OUTPUT
-            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-          else
-            echo "No publish detected"
-            echo "published=false" >> $GITHUB_OUTPUT
-          fi
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Package version: $VERSION"
 
       - name: Publish to GitHub Packages
-        if: steps.publish_check.outputs.published == 'true'
+        if: steps.changesets.outputs.published == 'true'
         run: |
           # Update package name for GitHub Packages (scoped to owner)
           npm pkg set name='@acartine/shemcp'
@@ -89,11 +76,11 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
       - name: Extract changelog for release
-        if: steps.publish_check.outputs.published == 'true'
+        if: steps.changesets.outputs.published == 'true'
         id: changelog
         run: |
           # Extract the latest version section from CHANGELOG.md
-          VERSION="${{ steps.publish_check.outputs.version }}"
+          VERSION="${{ steps.package_version.outputs.version }}"
           echo "Extracting changelog for version $VERSION"
           
           # Find the section for this version and extract until the next version
@@ -110,15 +97,15 @@ jobs:
           echo "EOF" >> $GITHUB_ENV
           
       - name: Create GitHub Release
-        if: steps.publish_check.outputs.published == 'true'
+        if: steps.changesets.outputs.published == 'true'
         uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ steps.publish_check.outputs.version }}
-          name: 🚀 Release v${{ steps.publish_check.outputs.version }}
+          tag_name: v${{ steps.package_version.outputs.version }}
+          name: 🚀 Release v${{ steps.package_version.outputs.version }}
           body: |
-            ## 📦 What's New in v${{ steps.publish_check.outputs.version }}
+            ## 📦 What's New in v${{ steps.package_version.outputs.version }}
             
             ${{ env.RELEASE_NOTES }}
             
@@ -126,7 +113,7 @@ jobs:
             
             - **npm Package**: [shemcp](https://www.npmjs.com/package/shemcp)
             - **Repository**: [acartine/shemcp](https://github.com/acartine/shemcp)
-            - **Version**: v${{ steps.publish_check.outputs.version }}
+            - **Version**: v${{ steps.package_version.outputs.version }}
             - **License**: MIT
             
             ## 🚀 Installation
