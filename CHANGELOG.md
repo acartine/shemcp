@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.0] - 2024-09-24
 
 ### Added
+- **Sandbox Security Enhancements** (from PR #10)
+  - Sandbox root now resolves to the Git repository root by default (fallback to the current working directory)
+  - Optional overrides via SHEMCP_ROOT or MCP_SANDBOX_ROOT environment variables
+  - Removed shell_set_cwd tool; shell_exec cwd must be RELATIVE to the sandbox root
+  - Absolute paths are rejected with clear error messages including received path and sandbox root
+  - Added shell_info tool for introspection (reports sandbox_root and resolves relative cwd inputs)
+  - Hardened ensureCwd with realpath and boundary checks to prevent symlink escapes
+  - Enhanced directory accessibility validation
+
 - **Server Version & Config Versioning**
   - Server version now sourced from package.json and passed to MCP handshake
   - Add config_version (default 1) to schema; warn on unsupported future versions
@@ -30,17 +39,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Clear examples and usage instructions for each parameter
   - Improved developer experience with detailed schema documentation
 
+- **Enhanced Release Automation**
+  - Professional GitHub release formatting with emojis and comprehensive notes
+  - Automated changelog integration for rich release documentation
+  - Improved npm package coordination and discoverability
+
 ### Technical Details
 - Overrides clamped to [1s, 300s] for timeout and [1000, 10M] for output bytes
 - Policy limits always respected as upper bounds
 - Enhanced error reporting with effective limits in response
 - Comprehensive test coverage for all new functionality
 
+### Security
+- Prevented symlink escapes with realpath boundary checks
+- Enhanced command validation with regex patterns
+- Improved error messaging for security violations
+- Hardened path validation and accessibility checks
+
 ### Files Changed
 - `src/index.ts` - Added limit override logic, version handling, and property descriptions
 - `src/index.test.ts` - Comprehensive tests for new features and test fixes
 - `config.example.toml` - Expanded allowed commands and config versioning
-- `package-lock.json` - Version bump to 0.4.0
+- `package.json` - Enhanced package metadata and keywords
+- `CHANGELOG.md` - Comprehensive changelog with Keep a Changelog format
+- `.github/workflows/release.yml` - Enhanced release automation
+- `.changeset/config-versioning-limit-overrides.md` - Detailed changeset documentation
 
 ## [0.4.0] - 2024-09-24
 
