@@ -231,7 +231,8 @@ describe('MCP Shell Server', () => {
     it('should have correct server info from config', () => {
       const serverInfo = server['_serverInfo'];
       expect(serverInfo.name).toBe(config.server.name);
-      expect(serverInfo.version).toBe(config.server.version);
+      // Version should come from package.json, not config
+      expect(serverInfo.version).toMatch(/^\d+\.\d+\.\d+$/);
     });
 
     it('should convert config to policy correctly', () => {
