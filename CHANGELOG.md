@@ -1,5 +1,15 @@
 # shemcp
 
+## 0.5.0
+
+### Minor Changes
+
+- [#10](https://github.com/acartine/shemcp/pull/10) [`675f60c`](https://github.com/acartine/shemcp/commit/675f60c8a698f0f0c5d155c90a0c3e22c293eca9) Thanks [@acartine](https://github.com/acartine)! - - Sandbox root now resolves to the Git repository root by default (fallback to the current working directory), with optional overrides via SHEMCP_ROOT or MCP_SANDBOX_ROOT.
+  - Removed the shell_set_cwd tool; shell_exec cwd must be RELATIVE to the sandbox root. Absolute paths are rejected with clear error messages that include the received path and the sandbox root.
+  - Added shell_info tool for introspection (reports sandbox_root and resolves relative cwd inputs, including within_sandbox checks).
+  - Hardened ensureCwd with realpath and boundary checks to prevent symlink escapes and ensure directory accessibility.
+  - Updated docs and tests to reflect the new behavior.
+
 ## Unreleased
 
 ### Minor Changes
