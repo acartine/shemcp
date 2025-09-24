@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:  # Allows manual triggering of releases
 
 jobs:
   release:
@@ -134,6 +135,9 @@ jobs:
           
       - name: Find and auto-merge release PR
         env:
+          # Note: Using GITHUB_TOKEN here means the merge won't trigger workflows.
+          # To have the merge trigger the release workflow again, you'd need to use
+          # a Personal Access Token (PAT) stored as a secret instead.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Searching for release PR..."
