@@ -185,6 +185,34 @@ export function filteredEnv(testPolicy?: Policy): NodeJS.ProcessEnv {
   return out;
 }
 
+// Compute effective per-call limits from request input and global policy
+export function getEffectiveLimits(input: any, testPolicy?: Policy): { effectiveTimeoutMs: number; effectiveMaxBytes: number } {
+  const currentPolicy = testPolicy || policy;
+  // Back-compat: allow legacy timeout_ms, but prefer timeout_seconds if present
+  const providedTimeoutMs = typeof input?.timeout_ms === 'number' ? input.timeout_ms : undefined;
+  const providedTimeoutSeconds = typeof input?.timeout_seconds === 'number' ? input.timeout_seconds : undefined;
+  let effectiveTimeoutMs = currentPolicy.timeoutMs;
+  if (typeof providedTimeoutSeconds === 'number') {
+    // clamp to [1s, 300s] and also not exceed policy limit
+    const seconds = Math.max(1, Math.min(300, Math.floor(providedTimeoutSeconds)));
+    effectiveTimeoutMs = Math.min(seconds * 1000, currentPolicy.timeoutMs);
+  } else if (typeof providedTimeoutMs === 'number') {
+    // clamp to [1ms, policy.timeoutMs]
+    const ms = Math.max(1, Math.min(providedTimeoutMs, 300000));
+    effectiveTimeoutMs = Math.min(ms, currentPolicy.timeoutMs);
+  }
+
+  // max_output_bytes override with clamp [1000, 10_000_000] but not exceed policy cap
+  const providedMaxBytes = typeof input?.max_output_bytes === 'number' ? input.max_output_bytes : undefined;
+  let effectiveMaxBytes = currentPolicy.maxBytes;
+  if (typeof providedMaxBytes === 'number') {
+    const clamped = Math.max(1000, Math.min(10_000_000, Math.floor(providedMaxBytes)));
+    effectiveMaxBytes = Math.min(clamped, currentPolicy.maxBytes);
+  }
+
+  return { effectiveTimeoutMs, effectiveMaxBytes };
+}
+
 export async function execOnce(cmd: string, args: string[], cwd: string, timeoutMs: number, maxBytes: number) {
   const child = spawn(cmd, args, { cwd, env: filteredEnv(), stdio: ["ignore", "pipe", "pipe"] });
   let stdout = Buffer.alloc(0);
@@ -235,7 +263,11 @@ export const tools: Tool[] = [
         cmd: { type: "string", minLength: 1 },
         args: { type: "array", items: { type: "string" }, default: [] },
         cwd: { type: "string", description: "Relative path from sandbox root (no absolute paths)" },
-        timeout_ms: { type: "number", minimum: 1, maximum: 300000 }
+        // Deprecated: prefer timeout_seconds; kept for backward-compat
+        timeout_ms: { type: "number", minimum: 1, maximum: 300000 },
+        // New optional per-request overrides
+        timeout_seconds: { type: "number", minimum: 1, maximum: 300 },
+        max_output_bytes: { type: "number", minimum: 1000, maximum: 10000000 }
       },
       required: ["cmd"]
     }
@@ -296,8 +328,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
     }
 
-    const tmo = Math.min(input.timeout_ms ?? policy.timeoutMs, policy.timeoutMs);
-  const res = await execOnce(input.cmd, input.args || [], resolvedCwd, tmo, policy.maxBytes);
+    // Compute effective per-request limits
+    const { effectiveTimeoutMs, effectiveMaxBytes } = getEffectiveLimits(input, policy);
+    const res = await execOnce(input.cmd, input.args || [], resolvedCwd, effectiveTimeoutMs, effectiveMaxBytes);
 
     return {
       content: [{
@@ -312,7 +345,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             stdout: res.stdout,
             stderr: res.stderr,
             cmdline: [input.cmd, ...(input.args || [])],
-            cwd: resolvedCwd
+            cwd: resolvedCwd,
+            limits: {
+              timeout_ms: effectiveTimeoutMs,
+              max_output_bytes: effectiveMaxBytes
+            }
           }, null, 2)
         }
       }]
