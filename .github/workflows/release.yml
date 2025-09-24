@@ -13,14 +13,19 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for proper changelog generation
+      
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org
+          
       - name: Print Node and npm versions
         run: |
           node -v
           npm -v
+          
       - name: Verify npm auth and registry (no secrets)
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -31,13 +36,85 @@ jobs:
           npm whoami --registry=https://registry.npmjs.org || true
           echo "ping:"
           npm ping --registry=https://registry.npmjs.org || true
+          
       - run: npm ci
       - run: npm run build
+      
       - name: Create Release PR or Publish
+        id: changesets
         uses: changesets/action@v1
         with:
           publish: npm publish --provenance --access public
+          title: "Release: Update versions and publish to npm"
+          commit: "chore: release packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          
+      - name: Extract changelog for release
+        if: steps.changesets.outputs.published == 'true'
+        id: changelog
+        run: |
+          # Extract the latest version section from CHANGELOG.md
+          VERSION="${{ steps.changesets.outputs.publishedPackages[0].version }}"
+          echo "Extracting changelog for version $VERSION"
+          
+          # Find the section for this version and extract until the next version
+          awk "/^## \\[$VERSION\\] - / {flag=1; next} /^## \\[/ {flag=0} flag" CHANGELOG.md > release_notes.md
+          
+          # If no specific version found, use the Unreleased section
+          if [ ! -s release_notes.md ]; then
+            awk "/^## \\[Unreleased\\]/ {flag=1; next} /^## \\[/ {flag=0} flag" CHANGELOG.md > release_notes.md
+          fi
+          
+          # Convert to GitHub markdown format
+          echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
+          cat release_notes.md >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          
+      - name: Create GitHub Release
+        if: steps.changesets.outputs.published == 'true'
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.changesets.outputs.publishedPackages[0].version }}
+          name: 🚀 Release v${{ steps.changesets.outputs.publishedPackages[0].version }}
+          body: |
+            ## 📦 What's New in v${{ steps.changesets.outputs.publishedPackages[0].version }}
+            
+            ${{ env.RELEASE_NOTES }}
+            
+            ## 📋 Package Information
+            
+            - **npm Package**: [shemcp](https://www.npmjs.com/package/shemcp)
+            - **Repository**: [acartine/shemcp](https://github.com/acartine/shemcp)
+            - **Version**: v${{ steps.changesets.outputs.publishedPackages[0].version }}
+            - **License**: MIT
+            
+            ## 🚀 Installation
+            
+            ```bash
+            # Install globally
+            npm install -g shemcp
+            
+            # Or use with npx
+            npx shemcp
+            ```
+            
+            ## 📚 Links
+            
+            - [📖 Full Changelog](https://github.com/acartine/shemcp/blob/main/CHANGELOG.md)
+            - [📄 Documentation](https://github.com/acartine/shemcp#readme)
+            - [🐛 Report Issues](https://github.com/acartine/shemcp/issues)
+            - [💬 Discussions](https://github.com/acartine/shemcp/discussions)
+            
+            ## 🎯 Model Context Protocol
+            
+            This package implements the Model Context Protocol (MCP) for secure shell command execution.
+            
+            **Thank you for using shemcp!** ⭐
+          draft: false
+          prerelease: false
+          generate_release_notes: false

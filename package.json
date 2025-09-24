@@ -25,12 +25,28 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/acartine/shemcp.git"
+    "url": "git+https://github.com/acartine/shemcp.git",
+    "directory": "."
   },
   "bugs": {
-    "url": "https://github.com/acartine/shemcp/issues"
+    "url": "https://github.com/acartine/shemcp/issues",
+    "email": "issues@github.com/acartine/shemcp"
   },
   "homepage": "https://github.com/acartine/shemcp#readme",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "shell",
+    "cli",
+    "sandbox",
+    "security",
+    "typescript",
+    "node",
+    "command-line",
+    "tools",
+    "automation"
+  ],
+  "description": "A secure Model Context Protocol (MCP) server for shell command execution with sandboxing and policy enforcement",
   "engines": {
     "node": ">=18"
   },
