@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.5
+
+### Patch Changes
+
+- [#34](https://github.com/acartine/shemcp/pull/34) [`7744b9b`](https://github.com/acartine/shemcp/commit/7744b9bededd54902c9fe87369dbe3a68fdb45d4) Thanks [@acartine](https://github.com/acartine)! - Fix GitHub Release and Packages creation after Release PR merge
+
+  The workflow now properly detects when packages are published after a Release PR is merged. Previously, the changesets action's `published` output was only true for direct publishes, not for Release PR merges.
+
+  This fix adds detection logic that checks:
+
+  - If changesets reports a publish (direct push scenario)
+  - OR if we just merged a Release PR and the package is now on npm
+
+  This ensures GitHub Releases and GitHub Packages are created for all published versions.
+
 ## 0.7.4
 
 ### Patch Changes
