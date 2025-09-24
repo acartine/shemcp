@@ -148,9 +148,9 @@ jobs:
             echo "Waiting for CI checks to begin..."
             sleep 30
             
-            # Auto-merge the PR
+            # Auto-merge the PR (use --repo flag since we're not in a git directory)
             echo "Auto-merging release PR #$RELEASE_PR_NUMBER..."
-            gh pr merge $RELEASE_PR_NUMBER --squash --auto --delete-branch
+            gh pr merge $RELEASE_PR_NUMBER --repo ${{ github.repository }} --squash --auto --delete-branch
             
             echo "✅ Release PR #$RELEASE_PR_NUMBER auto-merged successfully!"
           else
