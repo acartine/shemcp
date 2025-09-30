@@ -143,14 +143,10 @@ describe('MCP Shell Server', () => {
 
   describe('Tool Definitions', () => {
     it('should define all expected tools', () => {
-      expect(tools.length === 2 || tools.length === 3).toBe(true);
+      expect(tools.length).toBe(2);
       const toolNames = tools.map(t => t.name);
       expect(toolNames).toContain("shell_exec");
-      expect(toolNames).toContain("shell_set_policy");
-      // Optional helper tool
-      if (tools.length === 3) {
-        expect(toolNames).toContain("shell_info");
-      }
+      expect(toolNames).toContain("shell_info");
     });
 
     it('should have proper tool schemas', () => {
@@ -160,13 +156,9 @@ describe('MCP Shell Server', () => {
       expect(execTool?.inputSchema.properties?.cmd).toBeDefined();
       expect(execTool?.inputSchema.required).toContain("cmd");
 
-  const cwdTool = tools.find(t => t.name === "shell_set_cwd");
-  expect(cwdTool).toBeUndefined();
-
-      const policyTool = tools.find(t => t.name === "shell_set_policy");
-      expect(policyTool).toBeDefined();
-      expect(policyTool?.inputSchema.properties?.allow_patterns).toBeDefined();
-      expect(policyTool?.inputSchema.properties?.timeout_ms).toBeDefined();
+      const infoTool = tools.find(t => t.name === "shell_info");
+      expect(infoTool).toBeDefined();
+      expect(infoTool?.inputSchema.type).toBe("object");
 
       // New per-request override properties should exist
       expect(execTool?.inputSchema.properties?.timeout_seconds).toBeDefined();
