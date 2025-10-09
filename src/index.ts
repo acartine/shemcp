@@ -281,20 +281,6 @@ export const tools: Tool[] = [
         cwd: { type: "string", description: "Optional relative path to resolve and check against sandbox root" }
       }
     }
-  },
-  {
-    name: "shell_set_policy",
-    description: "Update policy: allow/deny regex, timeout, output cap, env whitelist. Root directory is automatic.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        allow_patterns: { type: "array", items: { type: "string" }, description: "Regex patterns for allowed commands (e.g., ['^git(\\s|$)', '^npm(\\s|$)'])" },
-        deny_patterns: { type: "array", items: { type: "string" }, description: "Regex patterns for explicitly denied commands (checked after allow list)" },
-        timeout_ms: { type: "number", minimum: 1, maximum: 300000, description: "Global timeout for commands in milliseconds (1-300000)" },
-        max_bytes: { type: "number", minimum: 1000, maximum: 10000000, description: "Global maximum output size per stream in bytes (1000-10M)" },
-        env_whitelist: { type: "array", items: { type: "string" }, description: "Environment variable names to forward to executed commands" }
-      }
-    }
   }
 ];
 
@@ -385,29 +371,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
     return {
       content: [{ type: "text", text: JSON.stringify(info, null, 2) }]
-    };
-  }
-
-  if (name === "shell_set_policy") {
-    const input = args as any;
-    if (input.allow_patterns) policy.allow = input.allow_patterns.map(makeRegex);
-    if (input.deny_patterns)  policy.deny  = input.deny_patterns.map(makeRegex);
-    if (input.timeout_ms)     policy.timeoutMs = input.timeout_ms;
-    if (input.max_bytes)      policy.maxBytes  = input.max_bytes;
-    if (input.env_whitelist)  policy.envWhitelist = input.env_whitelist;
-
-    return {
-      content: [{
-        type: "text",
-        text: JSON.stringify({
-          rootDirectory: policy.rootDirectory,
-          allow: policy.allow.map(r => r.source),
-          deny: policy.deny.map(r => r.source),
-          timeoutMs: policy.timeoutMs,
-          maxBytes: policy.maxBytes,
-          envWhitelist: policy.envWhitelist
-        }, null, 2)
-      }]
     };
   }
   

@@ -44,7 +44,6 @@ You can explicitly override the root for special cases with SHEMCP_ROOT or MCP_S
 - **🛡️ Hardened Path Enforcement**: `cwd` must be relative; absolute paths are rejected. Realpath boundary checks prevent symlink escapes.
 - **🌍 Environment Filtering**: Only pass through safe environment variables
 - **⏱️ Resource Limits**: Configurable timeouts and output size caps
-- **🔧 Runtime Policy Updates**: Modify security policies on the fly (optional)
 
 ## Security Model
 
@@ -105,16 +104,6 @@ Introspection utility for the sandbox.
 
 ### 3) Removed: `shell_set_cwd`
 This command has been removed. Use `shell_exec` with a relative `cwd` instead.
-
-### 4) `shell_set_policy`
-Update the security policy at runtime.
-
-- Parameters:
-  - `allow_patterns`: Array of regex patterns for allowed commands
-  - `deny_patterns`: Array of regex patterns for denied commands
-  - `timeout_ms`: Maximum command timeout
-  - `max_bytes`: Maximum output size per stream
-  - `env_whitelist`: Array of environment variables to pass through
 
 ## Quick reference
 
@@ -249,7 +238,6 @@ max_output_bytes = 2000000
 whitelist = ["PATH", "HOME", "USER", "LANG"]
 
 [security]
-allow_runtime_policy_changes = true
 require_secure_permissions = false
 ```
 
