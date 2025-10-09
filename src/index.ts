@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants, appendFileSync, mkdirSync, existsSync, realpathSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { accessSync, constants, appendFileSync, mkdirSync, existsSync, realpathSync, readFileSync, writeFileSync, unlinkSync, createReadStream } from "node:fs";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { homedir } from "node:os";
@@ -222,8 +222,8 @@ function createSpillFile(): SpillFile {
   return {
     uri,
     path,
-    stderrUri: undefined,
-    stderrPath: undefined,
+    stderrUri,
+    stderrPath,
     cleanup: () => {
       try {
         if (existsSync(path)) {
@@ -254,6 +254,30 @@ function detectMimeType(content: string): string {
 
 function countLines(content: string): number {
   return content.split('\n').length;
+}
+
+async function readFileRange(filePath: string, start: number, end: number): Promise<string> {
+  // Use createReadStream to read only the requested byte range
+  return new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let totalBytesRead = 0;
+
+    const stream = createReadStream(filePath, { start, end: end - 1 });
+
+    stream.on('data', (chunk: any) => {
+      chunks.push(Buffer.from(chunk));
+      totalBytesRead += Buffer.from(chunk).length;
+    });
+
+    stream.on('end', () => {
+      const buffer = Buffer.concat(chunks);
+      resolve(buffer.toString('utf8'));
+    });
+
+    stream.on('error', (error) => {
+      reject(error);
+    });
+  });
 }
 
 async function execWithPagination(
@@ -366,36 +390,35 @@ async function execWithPagination(
   let returnedStderr = "";
 
   if (spillFile && hasStdoutSpill) {
-    // Read the complete stdout from spill file for accurate byte slicing
+    // Read only the specific byte range from stdout spill file
     try {
-      const fullStdoutContent = readFileSync(spillFile.path, 'utf8');
       const stdoutEnd = Math.min(startOffset + limitBytes, totalStdoutBytes);
-      returnedStdout = fullStdoutContent.substring(startOffset, stdoutEnd);
+      returnedStdout = await readFileRange(spillFile.path, startOffset, stdoutEnd);
     } catch (e) {
       debugLog("Failed to read from stdout spill file", e);
-      // Fallback to in-memory buffer
-      const stdoutStr = stdoutBuffer.toString("utf8");
+      // Fallback to in-memory buffer with byte-aware slicing
       const stdoutEnd = Math.min(startOffset + limitBytes, stdoutBuffer.length);
-      returnedStdout = stdoutStr.substring(startOffset, stdoutEnd);
+      returnedStdout = stdoutBuffer.subarray(startOffset, stdoutEnd).toString("utf8");
     }
   } else {
     // No spill file, use in-memory buffer with byte-aware slicing
-    const stdoutStr = stdoutBuffer.toString("utf8");
     const stdoutEnd = Math.min(startOffset + limitBytes, stdoutBuffer.length);
-    returnedStdout = stdoutStr.substring(startOffset, stdoutEnd);
+    returnedStdout = stdoutBuffer.subarray(startOffset, stdoutEnd).toString("utf8");
   }
 
   // Handle stderr - use policy limit for in-memory stderr
   if (spillFile && hasStderrSpill) {
     try {
-      const fullStderrContent = readFileSync(spillFile.stderrPath!, 'utf8');
-      returnedStderr = fullStderrContent.substring(0, Math.min(maxBytes, totalStderrBytes));
+      const stderrEnd = Math.min(maxBytes, totalStderrBytes);
+      returnedStderr = await readFileRange(spillFile.stderrPath!, 0, stderrEnd);
     } catch (e) {
       debugLog("Failed to read from stderr spill file", e);
-      returnedStderr = stderrBuffer.toString("utf8").substring(0, maxBytes);
+      const stderrEnd = Math.min(maxBytes, stderrBuffer.length);
+      returnedStderr = stderrBuffer.subarray(0, stderrEnd).toString("utf8");
     }
   } else {
-    returnedStderr = stderrBuffer.toString("utf8").substring(0, maxBytes);
+    const stderrEnd = Math.min(maxBytes, stderrBuffer.length);
+    returnedStderr = stderrBuffer.subarray(0, stderrEnd).toString("utf8");
   }
 
   // Determine if we need pagination
