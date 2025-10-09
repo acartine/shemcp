@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants, appendFileSync, mkdirSync, existsSync, realpathSync } from "node:fs";
+import { accessSync, constants, appendFileSync, mkdirSync, existsSync, realpathSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { homedir } from "node:os";
 import { join, resolve, relative as pathRelative, isAbsolute as pathIsAbsolute } from "node:path";
+import { randomUUID } from "node:crypto";
 import { 
   ListToolsRequestSchema,
   CallToolRequestSchema
@@ -52,6 +53,20 @@ export type Policy = {
   timeoutMs: number;   // hard cap per command
   maxBytes: number;    // cap stdout/stderr per stream
   envWhitelist: string[]; // which env vars to forward
+};
+
+export type PaginationConfig = {
+  cursor?: string;        // opaque position marker, e.g., "bytes:0"
+  limit_bytes?: number;   // default: 64 KB
+  limit_lines?: number;   // optional: stops on whichever hits first
+};
+
+export type LargeOutputBehavior = "spill" | "truncate" | "error";
+
+export type SpillFile = {
+  uri: string;
+  path: string;
+  cleanup: () => void;
 };
 
 export const makeRegex = (s: string) => new RegExp(s, "i");
@@ -185,6 +200,201 @@ export function filteredEnv(testPolicy?: Policy): NodeJS.ProcessEnv {
   return out;
 }
 
+/** ---------- Pagination Helpers ---------- */
+
+function parseCursor(cursor: string): { type: string; offset: number } {
+  const [type, offsetStr] = cursor.split(':');
+  return { type: type || 'bytes', offset: parseInt(offsetStr || '0', 10) };
+}
+
+function createSpillFile(): SpillFile {
+  const tempDir = join(homedir(), ".shemcp", "tmp");
+  mkdirSync(tempDir, { recursive: true });
+
+  const id = randomUUID();
+  const path = join(tempDir, `exec-${id}.out`);
+  const uri = `mcp://tmp/exec-${id}.out`;
+
+  return {
+    uri,
+    path,
+    cleanup: () => {
+      try {
+        if (existsSync(path)) {
+          unlinkSync(path);
+        }
+      } catch (e) {
+        debugLog("Failed to cleanup spill file", { path, error: e });
+      }
+    }
+  };
+}
+
+function detectMimeType(content: string): string {
+  // Simple MIME type detection based on content
+  if (content.trim().startsWith('{') || content.trim().startsWith('[')) {
+    try {
+      JSON.parse(content);
+      return "application/json";
+    } catch {
+      // Not valid JSON, continue with text/plain
+    }
+  }
+  return "text/plain";
+}
+
+function countLines(content: string): number {
+  return content.split('\n').length;
+}
+
+async function execWithPagination(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+  maxBytes: number,
+  pagination?: PaginationConfig,
+  onLargeOutput: LargeOutputBehavior = "spill"
+): Promise<{
+  exitCode: number;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+  totalBytes: number;
+  truncated: boolean;
+  nextCursor?: string;
+  spillFile?: SpillFile;
+  mime: string;
+  lineCount: number;
+  stderrCount: number;
+}> {
+  const child = spawn(cmd, args, { cwd, env: filteredEnv(), stdio: ["ignore", "pipe", "pipe"] });
+  let stdoutChunks: Buffer[] = [];
+  let stderrChunks: Buffer[] = [];
+  let totalStdoutBytes = 0;
+  let totalStderrBytes = 0;
+  const started = Date.now();
+
+  // Parse pagination config
+  const limitBytes = pagination?.limit_bytes || 65536;
+  const limitLines = pagination?.limit_lines || 2000;
+  const startOffset = pagination?.cursor ? parseCursor(pagination.cursor).offset : 0;
+
+  // Create spill file if needed
+  let spillFile: SpillFile | undefined;
+  if (onLargeOutput === "spill") {
+    spillFile = createSpillFile();
+  }
+
+  child.stdout.on("data", (c: Buffer) => {
+    const currentTotal = totalStdoutBytes;
+    const limit = limitBytes;
+
+    if (currentTotal >= startOffset) {
+      const remaining = limit - (currentTotal - startOffset);
+      if (remaining > 0) {
+        const chunkToAdd = c.slice(0, remaining);
+        stdoutChunks.push(chunkToAdd);
+      }
+    }
+
+    // Always accumulate for total counts
+    totalStdoutBytes += c.length;
+
+    // Spill to file if configured
+    if (spillFile && totalStdoutBytes > limitBytes) {
+      try {
+        appendFileSync(spillFile.path, c);
+      } catch (e) {
+        debugLog("Failed to write to spill file", e);
+      }
+    }
+  });
+
+  child.stderr.on("data", (c: Buffer) => {
+    const currentTotal = totalStderrBytes;
+    const limit = maxBytes;
+
+    if (currentTotal >= startOffset) {
+      const remaining = limit - (currentTotal - startOffset);
+      if (remaining > 0) {
+        const chunkToAdd = c.slice(0, remaining);
+        stderrChunks.push(chunkToAdd);
+      }
+    }
+
+    // Always accumulate for total counts
+    totalStderrBytes += c.length;
+
+    // Also spill stderr if configured
+    if (spillFile && totalStderrBytes > maxBytes) {
+      try {
+        appendFileSync(spillFile.path + ".err", c);
+      } catch (e) {
+        debugLog("Failed to write stderr to spill file", e);
+      }
+    }
+  });
+
+  const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    child.on("exit", (code, signal) => resolve({ code, signal }));
+  });
+
+  const killer = setTimeout(() => {
+    child.kill("SIGKILL");
+  }, timeoutMs);
+
+  const result = await exit;
+  clearTimeout(killer);
+
+  const durationMs = Date.now() - started;
+  const fullStdout = Buffer.concat(stdoutChunks).toString("utf8");
+  const fullStderr = Buffer.concat(stderrChunks).toString("utf8");
+
+  // Determine if we need pagination
+  const stdoutLines = countLines(fullStdout);
+  const stderrLines = countLines(fullStderr);
+  const totalBytes = totalStdoutBytes + totalStderrBytes;
+  const needsPagination = totalStdoutBytes > limitBytes || stdoutLines > limitLines;
+
+  let truncated = false;
+  let nextCursor: string | undefined;
+
+  if (needsPagination && onLargeOutput === "truncate") {
+    truncated = true;
+  } else if (needsPagination && onLargeOutput === "error") {
+    throw new Error(`Output too large: ${totalBytes} bytes, ${stdoutLines} lines. Use pagination or spill mode.`);
+  } else if (needsPagination && spillFile) {
+    // In spill mode, we return partial content and spill URI
+    const bytesEnd = Math.min(startOffset + limitBytes, totalStdoutBytes);
+    nextCursor = `bytes:${bytesEnd}`;
+  }
+
+  const resultObj: any = {
+    exitCode: result.code ?? -1,
+    signal: result.signal ?? null,
+    stdout: fullStdout,
+    stderr: fullStderr,
+    durationMs,
+    totalBytes,
+    truncated,
+    mime: detectMimeType(fullStdout),
+    lineCount: stdoutLines,
+    stderrCount: stderrLines
+  };
+
+  if (nextCursor) {
+    resultObj.nextCursor = nextCursor;
+  }
+
+  if (spillFile) {
+    resultObj.spillFile = spillFile;
+  }
+
+  return resultObj;
+}
+
 // Compute effective per-call limits from request input and global policy
 export function getEffectiveLimits(input: any, testPolicy?: Policy): { effectiveTimeoutMs: number; effectiveMaxBytes: number } {
   const currentPolicy = testPolicy || policy;
@@ -256,7 +466,7 @@ debugLog("Server instance created");
 export const tools: Tool[] = [
   {
     name: "shell_exec",
-    description: "Execute an allow-listed command within the sandbox (git project root). Optional cwd must be RELATIVE to the sandbox root.",
+    description: "Execute an allow-listed command within the sandbox (git project root). Optional cwd must be RELATIVE to the sandbox root. Supports pagination via limit_bytes and next_cursor. Automatically spills large outputs to file with spill_uri.",
     inputSchema: {
       type: "object",
       properties: {
@@ -267,9 +477,31 @@ export const tools: Tool[] = [
         timeout_ms: { type: "number", minimum: 1, maximum: 300000, description: "Command timeout in milliseconds (deprecated, use timeout_seconds instead)" },
         // New optional per-request overrides
         timeout_seconds: { type: "number", minimum: 1, maximum: 300, description: "Command timeout in seconds (1-300, will be clamped to policy limits)" },
-        max_output_bytes: { type: "number", minimum: 1000, maximum: 10000000, description: "Maximum output size in bytes (1000-10M, will be clamped to policy limits)" }
+        max_output_bytes: { type: "number", minimum: 1000, maximum: 10000000, description: "Maximum output size in bytes (1000-10M, will be clamped to policy limits)" },
+        page: {
+          type: "object",
+          properties: {
+            cursor: { type: "string", description: "Opaque position marker (e.g., 'bytes:0')" },
+            limit_bytes: { type: "number", minimum: 1, maximum: 10000000, description: "Default: 64 KB", default: 65536 },
+            limit_lines: { type: "number", minimum: 1, maximum: 100000, description: "Optional: stops on whichever hits first" }
+          }
+        },
+        on_large_output: { type: "string", enum: ["spill", "truncate", "error"], description: "How to handle large outputs", default: "spill" }
       },
       required: ["cmd"]
+    }
+  },
+  {
+    name: "read_file_chunk",
+    description: "Reads paginated data from a spilled file. Accepts cursor and limit_bytes to safely stream contents.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        uri: { type: "string", description: "URI of the spilled file (e.g., 'mcp://tmp/exec-abc123.out')" },
+        cursor: { type: "string", description: "Opaque position marker (e.g., 'bytes:0')", default: "bytes:0" },
+        limit_bytes: { type: "number", minimum: 1, maximum: 10000000, description: "Maximum bytes to read", default: 65536 }
+      },
+      required: ["uri"]
     }
   },
   {
@@ -316,7 +548,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     // Compute effective per-request limits
     const { effectiveTimeoutMs, effectiveMaxBytes } = getEffectiveLimits(input, policy);
-    const res = await execOnce(input.cmd, input.args || [], resolvedCwd, effectiveTimeoutMs, effectiveMaxBytes);
+
+    // Parse pagination and large output handling options
+    const pagination: PaginationConfig | undefined = input.page;
+    const onLargeOutput: LargeOutputBehavior = input.on_large_output || "spill";
+
+    const res = await execWithPagination(
+      input.cmd,
+      input.args || [],
+      resolvedCwd,
+      effectiveTimeoutMs,
+      effectiveMaxBytes,
+      pagination,
+      onLargeOutput
+    );
+
+    // Clean up spill file after response if not needed for pagination
+    if (res.spillFile && !res.nextCursor) {
+      res.spillFile.cleanup();
+      delete res.spillFile;
+    }
 
     return {
       content: [{
@@ -324,12 +575,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         resource: {
           uri: `exec://${input.cmd}`,
           text: JSON.stringify({
-            ok: res.exitCode === 0,
             exit_code: res.exitCode,
             signal: res.signal,
             duration_ms: res.durationMs,
-            stdout: res.stdout,
-            stderr: res.stderr,
+            stdout_chunk: res.stdout,
+            stderr_chunk: res.stderr,
+            bytes_start: pagination?.cursor ? parseCursor(pagination.cursor).offset : 0,
+            bytes_end: pagination?.cursor ? parseCursor(pagination.cursor).offset + res.stdout.length : res.stdout.length,
+            total_bytes: res.totalBytes,
+            truncated: res.truncated,
+            next_cursor: res.nextCursor,
+            spill_uri: res.spillFile?.uri,
+            mime: res.mime,
+            line_count: res.lineCount,
+            stderr_count: res.stderrCount,
             cmdline: [input.cmd, ...(input.args || [])],
             cwd: resolvedCwd,
             limits: {
@@ -373,7 +632,63 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       content: [{ type: "text", text: JSON.stringify(info, null, 2) }]
     };
   }
-  
+
+  if (name === "read_file_chunk") {
+    const input = args as any;
+    const uri = input.uri;
+    const cursor = input.cursor || "bytes:0";
+    const limitBytes = input.limit_bytes || 65536;
+
+    // Extract file path from URI
+    if (!uri.startsWith("mcp://tmp/")) {
+      return {
+        content: [{ type: "text", text: `Error: Invalid URI format. Expected mcp://tmp/..., got: ${uri}` }],
+        isError: true,
+      };
+    }
+
+    const fileName = uri.substring("mcp://tmp/".length);
+    const filePath = join(homedir(), ".shemcp", "tmp", fileName);
+
+    if (!existsSync(filePath)) {
+      return {
+        content: [{ type: "text", text: `Error: Spill file not found: ${filePath}` }],
+        isError: true,
+      };
+    }
+
+    try {
+      const fileContent = readFileSync(filePath, 'utf8');
+      const { offset } = parseCursor(cursor);
+      const endPos = Math.min(offset + limitBytes, fileContent.length);
+      const chunk = fileContent.substring(offset, endPos);
+
+      const nextCursor = endPos < fileContent.length ? `bytes:${endPos}` : undefined;
+
+      return {
+        content: [{
+          type: "resource",
+          resource: {
+            uri,
+            text: JSON.stringify({
+              data: chunk,
+              bytes_start: offset,
+              bytes_end: endPos,
+              total_bytes: fileContent.length,
+              next_cursor: nextCursor,
+              mime: detectMimeType(chunk)
+            }, null, 2)
+          }
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: `Error reading spill file: ${error}` }],
+        isError: true,
+      };
+    }
+  }
+
   throw new Error(`Unknown tool: ${name}`);
 });
 
