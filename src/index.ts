@@ -205,9 +205,21 @@ export function filteredEnv(testPolicy?: Policy): NodeJS.ProcessEnv {
 /** ---------- Pagination Helpers ---------- */
 
 function parseCursor(cursor: string): { type: string; offset: number } {
-  const [type, offsetStr] = cursor.split(':');
-  return { type: type || 'bytes', offset: parseInt(offsetStr || '0', 10) };
-}
+   if (!cursor || typeof cursor !== 'string') {
+     return { type: 'bytes', offset: 0 };
+   }
+
+   const [type, offsetStr] = cursor.split(':');
+   const offset = parseInt(offsetStr || '0', 10);
+
+   // Validate offset is non-negative
+   if (isNaN(offset) || offset < 0) {
+     debugLog("Invalid cursor offset, defaulting to 0", { cursor, offsetStr });
+     return { type: type || 'bytes', offset: 0 };
+   }
+
+   return { type: type || 'bytes', offset };
+ }
 
 function createSpillFile(): SpillFile {
   const tempDir = join(homedir(), ".shemcp", "tmp");
@@ -225,32 +237,75 @@ function createSpillFile(): SpillFile {
     stderrUri,
     stderrPath,
     cleanup: () => {
+      const errors: string[] = [];
+
       try {
         if (existsSync(path)) {
           unlinkSync(path);
-        }
-        if (existsSync(stderrPath)) {
-          unlinkSync(stderrPath);
+          debugLog("Cleaned up stdout spill file", { path });
         }
       } catch (e) {
-        debugLog("Failed to cleanup spill files", { path, stderrPath, error: e });
+        const errorMsg = `Failed to cleanup stdout spill file ${path}: ${e}`;
+        errors.push(errorMsg);
+        debugLog(errorMsg);
+      }
+
+      try {
+        if (existsSync(stderrPath)) {
+          unlinkSync(stderrPath);
+          debugLog("Cleaned up stderr spill file", { stderrPath });
+        }
+      } catch (e) {
+        const errorMsg = `Failed to cleanup stderr spill file ${stderrPath}: ${e}`;
+        errors.push(errorMsg);
+        debugLog(errorMsg);
+      }
+
+      if (errors.length > 0) {
+        debugLog("Spill file cleanup completed with errors", { errors });
       }
     }
   };
 }
 
 function detectMimeType(content: string): string {
-  // Simple MIME type detection based on content
-  if (content.trim().startsWith('{') || content.trim().startsWith('[')) {
-    try {
-      JSON.parse(content);
-      return "application/json";
-    } catch {
-      // Not valid JSON, continue with text/plain
-    }
-  }
-  return "text/plain";
-}
+   // Enhanced MIME type detection based on content
+   const trimmed = content.trim();
+
+   // JSON detection
+   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+     try {
+       JSON.parse(content);
+       return "application/json";
+     } catch {
+       // Not valid JSON, continue with other checks
+     }
+   }
+
+   // XML detection
+   if (trimmed.startsWith('<') && trimmed.includes('</')) {
+     return "application/xml";
+   }
+
+   // HTML detection
+   if (trimmed.startsWith('<!DOCTYPE html') || trimmed.startsWith('<html')) {
+     return "text/html";
+   }
+
+   // CSV detection (simple heuristic)
+   const firstLine = trimmed.split('\n')[0];
+   if (trimmed.includes(',') && firstLine && firstLine.split(',').length > 2) {
+     return "text/csv";
+   }
+
+   // YAML detection (simple heuristic)
+   if ((trimmed.startsWith('- ') || trimmed.match(/^\s*\w+:\s/)) && !trimmed.includes(';')) {
+     return "application/x-yaml";
+   }
+
+   // Default to plain text
+   return "text/plain";
+ }
 
 function countLines(content: string): number {
   return content.split('\n').length;
@@ -336,7 +391,13 @@ async function execWithPagination(
       stdoutBuffer = stdoutBuffer.slice(-keepBytes);
     }
 
-    stdoutBuffer = Buffer.concat([stdoutBuffer, c]);
+    // Only keep data if we need it for in-memory processing
+    if (stdoutBuffer.length + c.length <= maxMemoryBytes) {
+      stdoutBuffer = Buffer.concat([stdoutBuffer, c]);
+    } else {
+      // If adding this chunk would exceed memory limit, just update total but don't store
+      debugLog("Skipping stdout buffer storage due to memory limit", { chunkSize: c.length, total: totalStdoutBytes });
+    }
 
     // Write to spill file for complete stream access
     if (spillFile) {
@@ -374,9 +435,14 @@ async function execWithPagination(
 
   const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
     child.on("exit", (code, signal) => resolve({ code, signal }));
+    child.on("error", (error) => {
+      debugLog("Child process error", { error: error.message });
+      resolve({ code: -1, signal: null });
+    });
   });
 
   const killer = setTimeout(() => {
+    debugLog("Command timed out, killing process", { timeoutMs });
     child.kill("SIGKILL");
   }, timeoutMs);
 
