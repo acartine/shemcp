@@ -9,6 +9,9 @@ Independent agentic coding without handing over the keys to the castle.  Stop ge
 
 ## What's new
 
+- **🆕 Pagination Support**: Added pagination and large output handling to `shell_exec` with configurable `limit_bytes`, `limit_lines`, and `on_large_output` modes
+- **🆕 Spill File Management**: Large outputs are automatically written to temporary files with `spill_uri` for safe, paginated reading
+- **🆕 New `read_file_chunk` Tool**: Read paginated data from spilled files using `cursor` and `limit_bytes` for safe streaming
 - Sandbox root now resolves to the Git repository root by default (fallback to the current working directory), with optional overrides via `SHEMCP_ROOT` or `MCP_SANDBOX_ROOT`.
 - Removed the `shell_set_cwd` tool; `shell_exec` cwd must be RELATIVE to the sandbox root. Absolute paths are rejected with clear error messages that include the received path and the sandbox root.
 - Added `shell_info` tool for introspection (reports `sandbox_root` and resolves relative `cwd` inputs, including `within_sandbox` checks).
@@ -44,6 +47,9 @@ You can explicitly override the root for special cases with SHEMCP_ROOT or MCP_S
 - **🛡️ Hardened Path Enforcement**: `cwd` must be relative; absolute paths are rejected. Realpath boundary checks prevent symlink escapes.
 - **🌍 Environment Filtering**: Only pass through safe environment variables
 - **⏱️ Resource Limits**: Configurable timeouts and output size caps
+- **📄 Pagination Support**: Handle large command outputs with configurable `limit_bytes` and `limit_lines`
+- **💾 Spill File Management**: Large outputs automatically written to temporary files for safe, paginated access
+- **🔄 Streaming Reads**: `read_file_chunk` tool for reading spilled files in token-safe chunks
 
 ## Security Model
 
@@ -83,26 +89,78 @@ The log captures:
 ## Commands
 
 ### 1) `shell_exec`
-Execute an allow-listed command inside the sandbox.
+Execute an allow-listed command inside the sandbox with support for pagination and large output handling.
 
-- Parameters:
-  - `cmd` (required): Command to run
-  - `args`: Array of string arguments
-  - `cwd`: Optional working directory relative to the sandbox root (no absolute paths)
-  - `timeout_ms`: Command timeout in milliseconds
-- Rules:
-  - `cwd` must be RELATIVE to the sandbox root
-  - Absolute paths are rejected with an error that includes the received path and the sandbox root
-- Returns: stdout, stderr, exit code, duration, and the resolved cwd
+**Parameters:**
+- `cmd` (required): Command to run (e.g., "git", "npm", "python")
+- `args`: Array of string arguments (e.g., ["status", "--short"])
+- `cwd`: Optional working directory relative to the sandbox root (no absolute paths)
+- `timeout_ms`: Command timeout in milliseconds (deprecated, use `timeout_seconds`)
+- `timeout_seconds`: Command timeout in seconds (1-300, clamped to policy limits)
+- `max_output_bytes`: Maximum output size in bytes (1000-10M, clamped to policy limits)
+- `page`: Pagination configuration object:
+  - `cursor`: Opaque position marker (e.g., "bytes:0")
+  - `limit_bytes`: Maximum bytes per page (default: 65536, ~8-16k tokens)
+  - `limit_lines`: Maximum lines per page (default: 2000, stops on whichever hits first)
+- `on_large_output`: How to handle large outputs: "spill" (default), "truncate", or "error"
 
-### 2) `shell_info`
+**Rules:**
+- `cwd` must be RELATIVE to the sandbox root
+- Absolute paths are rejected with an error that includes the received path and the sandbox root
+- Large outputs (>limit_bytes or >limit_lines) are handled according to `on_large_output` mode
+
+**Response Format:**
+```json
+{
+  "exit_code": 0,
+  "stdout_chunk": "first 64k of data...",
+  "stderr_chunk": "",
+  "bytes_start": 0,
+  "bytes_end": 65535,
+  "total_bytes": 58112234,
+  "truncated": false,
+  "next_cursor": "bytes:65536",
+  "spill_uri": "mcp://tmp/exec-abc123.out",
+  "mime": "text/plain",
+  "line_count": 1780,
+  "stderr_count": 0,
+  "cmdline": ["git", "log"],
+  "cwd": "/path/to/project",
+  "limits": {
+    "timeout_ms": 60000,
+    "max_output_bytes": 2000000
+  }
+}
+```
+
+### 2) `read_file_chunk`
+Read paginated data from a spilled file created by `shell_exec` when `on_large_output` is set to "spill".
+
+**Parameters:**
+- `uri` (required): URI of the spilled file (e.g., "mcp://tmp/exec-abc123.out")
+- `cursor`: Opaque position marker (default: "bytes:0")
+- `limit_bytes`: Maximum bytes to read (default: 65536)
+
+**Response Format:**
+```json
+{
+  "data": "chunk of file content...",
+  "bytes_start": 0,
+  "bytes_end": 65535,
+  "total_bytes": 58112234,
+  "next_cursor": "bytes:65536",
+  "mime": "text/plain"
+}
+```
+
+### 3) `shell_info`
 Introspection utility for the sandbox.
 
 - Parameters (optional):
   - `cwd`: Relative path to resolve and validate against the sandbox root
 - Returns: JSON including `sandbox_root`, and if `cwd` is provided, `resolved_path` and `within_sandbox` flags
 
-### 3) Removed: `shell_set_cwd`
+### 4) Removed: `shell_set_cwd`
 This command has been removed. Use `shell_exec` with a relative `cwd` instead.
 
 ## Quick reference
@@ -117,6 +175,15 @@ Ask your MCP client to call these tools with the following inputs:
   - `{ "cmd": "git", "args": ["status"], "cwd": "." }`
   - `{ "cmd": "npm", "args": ["test"], "cwd": "." }`
   - `{ "cmd": "ls", "args": ["-la"], "cwd": "src" }`
+
+- **Pagination examples:**
+  - `{ "cmd": "git", "args": ["log"], "page": { "limit_bytes": 32768 } }` → First 32KB of git log
+  - `{ "cmd": "cat", "args": ["large.log"], "page": { "cursor": "bytes:65536" } }` → Next page from byte 65536
+  - `{ "cmd": "find", "args": [".", "-name", "*.ts"], "on_large_output": "spill" }` → Spill large find results to file
+
+- **Spill file reading examples:**
+  - `{ "uri": "mcp://tmp/exec-abc123.out", "limit_bytes": 16384 }` → Read first 16KB of spilled file
+  - `{ "uri": "mcp://tmp/exec-abc123.out", "cursor": "bytes:16384", "limit_bytes": 16384 }` → Read next 16KB chunk
 
 ## Quick Start
 
@@ -250,11 +317,101 @@ Once configured with Claude Code or another MCP client, you can ask the AI to ex
 **Example interactions:**
 - *"Check the git status of my project"* → Executes `git status`
 - *"List all TypeScript files"* → Executes `find . -name "*.ts"`
-- *"Run the tests"* → Executes `npm test` 
+- *"Run the tests"* → Executes `npm test`
 - *"Show recent commits"* → Executes `git log --oneline -10`
 - *"Create a new branch for this feature"* → Executes `git checkout -b feature-name`
 
 The AI can only execute commands that match your allow patterns and run in directories you've permitted, providing a secure sandbox for shell operations.
+
+## Pagination Usage Scenarios
+
+### Handling Large Command Outputs
+
+When dealing with commands that produce large outputs (like logs, large files, or directory listings), use pagination to avoid token limits:
+
+**Scenario 1: Paginating through git log**
+```json
+{
+  "cmd": "git",
+  "args": ["log", "--oneline"],
+  "page": { "limit_bytes": 32768 }
+}
+```
+Returns first 32KB of git history with `next_cursor` for continuation.
+
+**Scenario 2: Reading large files in chunks**
+```json
+{
+  "cmd": "cat",
+  "args": ["huge.log"],
+  "on_large_output": "spill",
+  "page": { "limit_bytes": 65536 }
+}
+```
+Spills large log file and returns first 64KB with `spill_uri` for continued reading.
+
+**Scenario 3: Processing large directory listings**
+```json
+{
+  "cmd": "find",
+  "args": [".", "-type", "f", "-name", "*.js"],
+  "page": { "limit_lines": 1000 }
+}
+```
+Returns up to 1000 lines of file listing, whichever comes first.
+
+### Reading Spill Files
+
+When `shell_exec` returns a `spill_uri`, use `read_file_chunk` to read the data in manageable chunks:
+
+**Scenario 4: Reading spilled output**
+```json
+{
+  "uri": "mcp://tmp/exec-abc123.out",
+  "limit_bytes": 16384
+}
+```
+Reads first 16KB of the spilled file.
+
+**Scenario 5: Continuing to read spilled output**
+```json
+{
+  "uri": "mcp://tmp/exec-abc123.out",
+  "cursor": "bytes:16384",
+  "limit_bytes": 16384
+}
+```
+Reads the next 16KB chunk using the `next_cursor` from the previous response.
+
+### Agent Behavior Patterns
+
+**Automatic Pagination Loop:**
+```javascript
+// Pseudo-code for automatic pagination
+let result = shell_exec(cmd, args, { limit_bytes: 65536 });
+while (result.next_cursor) {
+  // Process current chunk
+  processChunk(result.stdout_chunk);
+
+  // Get next chunk
+  result = shell_exec(cmd, args, {
+    page: { cursor: result.next_cursor }
+  });
+}
+```
+
+**Spill File Handling:**
+```javascript
+// Pseudo-code for handling spilled files
+let result = shell_exec(cmd, args, { on_large_output: "spill" });
+if (result.spill_uri) {
+  let chunk = read_file_chunk(result.spill_uri, 65536);
+  while (chunk.next_cursor) {
+    processChunk(chunk.data);
+    chunk = read_file_chunk(result.spill_uri, chunk.next_cursor);
+  }
+}
+```
 
 ## Development
 

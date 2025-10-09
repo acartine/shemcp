@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants, appendFileSync, mkdirSync, existsSync, realpathSync } from "node:fs";
+import { accessSync, constants, appendFileSync, mkdirSync, existsSync, realpathSync, readFileSync, writeFileSync, unlinkSync, createReadStream, statSync } from "node:fs";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { homedir } from "node:os";
 import { join, resolve, relative as pathRelative, isAbsolute as pathIsAbsolute } from "node:path";
+import { randomUUID } from "node:crypto";
 import { 
   ListToolsRequestSchema,
   CallToolRequestSchema
@@ -52,6 +53,22 @@ export type Policy = {
   timeoutMs: number;   // hard cap per command
   maxBytes: number;    // cap stdout/stderr per stream
   envWhitelist: string[]; // which env vars to forward
+};
+
+export type PaginationConfig = {
+  cursor?: string;        // opaque position marker, e.g., "bytes:0"
+  limit_bytes?: number;   // default: 64 KB
+  limit_lines?: number;   // optional: stops on whichever hits first
+};
+
+export type LargeOutputBehavior = "spill" | "truncate" | "error";
+
+export type SpillFile = {
+  uri: string;
+  path: string;
+  stderrUri?: string | undefined;
+  stderrPath?: string | undefined;
+  cleanup: () => void;
 };
 
 export const makeRegex = (s: string) => new RegExp(s, "i");
@@ -185,6 +202,371 @@ export function filteredEnv(testPolicy?: Policy): NodeJS.ProcessEnv {
   return out;
 }
 
+/** ---------- Pagination Helpers ---------- */
+
+function parseCursor(cursor: string): { type: string; offset: number } {
+   if (!cursor || typeof cursor !== 'string') {
+     return { type: 'bytes', offset: 0 };
+   }
+
+   const [type, offsetStr] = cursor.split(':');
+   const offset = parseInt(offsetStr || '0', 10);
+
+   // Validate offset is non-negative
+   if (isNaN(offset) || offset < 0) {
+     debugLog("Invalid cursor offset, defaulting to 0", { cursor, offsetStr });
+     return { type: type || 'bytes', offset: 0 };
+   }
+
+   return { type: type || 'bytes', offset };
+ }
+
+function createSpillFile(): SpillFile {
+  const tempDir = join(homedir(), ".shemcp", "tmp");
+  mkdirSync(tempDir, { recursive: true });
+
+  const id = randomUUID();
+  const path = join(tempDir, `exec-${id}.out`);
+  const uri = `mcp://tmp/exec-${id}.out`;
+  const stderrPath = join(tempDir, `exec-${id}.err`);
+  const stderrUri = `mcp://tmp/exec-${id}.err`;
+
+  return {
+    uri,
+    path,
+    stderrUri,
+    stderrPath,
+    cleanup: () => {
+      const errors: string[] = [];
+
+      try {
+        if (existsSync(path)) {
+          unlinkSync(path);
+          debugLog("Cleaned up stdout spill file", { path });
+        }
+      } catch (e) {
+        const errorMsg = `Failed to cleanup stdout spill file ${path}: ${e}`;
+        errors.push(errorMsg);
+        debugLog(errorMsg);
+      }
+
+      try {
+        if (existsSync(stderrPath)) {
+          unlinkSync(stderrPath);
+          debugLog("Cleaned up stderr spill file", { stderrPath });
+        }
+      } catch (e) {
+        const errorMsg = `Failed to cleanup stderr spill file ${stderrPath}: ${e}`;
+        errors.push(errorMsg);
+        debugLog(errorMsg);
+      }
+
+      if (errors.length > 0) {
+        debugLog("Spill file cleanup completed with errors", { errors });
+      }
+    }
+  };
+}
+
+function detectMimeType(content: string): string {
+   // Enhanced MIME type detection based on content
+   const trimmed = content.trim();
+
+   // JSON detection
+   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+     try {
+       JSON.parse(content);
+       return "application/json";
+     } catch {
+       // Not valid JSON, continue with other checks
+     }
+   }
+
+   // XML detection
+   if (trimmed.startsWith('<') && trimmed.includes('</')) {
+     return "application/xml";
+   }
+
+   // HTML detection
+   if (trimmed.startsWith('<!DOCTYPE html') || trimmed.startsWith('<html')) {
+     return "text/html";
+   }
+
+   // CSV detection (simple heuristic)
+   const firstLine = trimmed.split('\n')[0];
+   if (trimmed.includes(',') && firstLine && firstLine.split(',').length > 2) {
+     return "text/csv";
+   }
+
+   // YAML detection (simple heuristic)
+   if ((trimmed.startsWith('- ') || trimmed.match(/^\s*\w+:\s/)) && !trimmed.includes(';')) {
+     return "application/x-yaml";
+   }
+
+   // Default to plain text
+   return "text/plain";
+ }
+
+function countLines(content: string): number {
+  return content.split('\n').length;
+}
+
+async function readFileRange(filePath: string, start: number, end: number): Promise<string> {
+   // Handle edge case where end <= start to avoid ERR_OUT_OF_RANGE
+   if (end <= start) {
+     return Promise.resolve('');
+   }
+
+   // Use createReadStream to read only the requested byte range
+   return new Promise<string>((resolve, reject) => {
+     const chunks: Buffer[] = [];
+     let totalBytesRead = 0;
+
+     const stream = createReadStream(filePath, { start, end: end - 1 });
+
+     stream.on('data', (chunk: any) => {
+       chunks.push(Buffer.from(chunk));
+       totalBytesRead += Buffer.from(chunk).length;
+     });
+
+     stream.on('end', () => {
+       const buffer = Buffer.concat(chunks);
+       resolve(buffer.toString('utf8'));
+     });
+
+     stream.on('error', (error) => {
+       reject(error);
+     });
+   });
+ }
+
+async function execWithPagination(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+  maxBytes: number,
+  pagination?: PaginationConfig,
+  onLargeOutput: LargeOutputBehavior = "spill"
+): Promise<{
+  exitCode: number;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+  totalBytes: number;
+  truncated: boolean;
+  nextCursor?: string;
+  spillFile?: SpillFile;
+  mime: string;
+  lineCount: number;
+  stderrCount: number;
+}> {
+  const child = spawn(cmd, args, { cwd, env: filteredEnv(), stdio: ["ignore", "pipe", "pipe"] });
+
+  // Parse pagination config
+  const limitBytes = pagination?.limit_bytes || 65536;
+  const limitLines = pagination?.limit_lines || 2000;
+  const startOffset = pagination?.cursor ? parseCursor(pagination.cursor).offset : 0;
+
+  // Create spill file if needed
+  let spillFile: SpillFile | undefined;
+  let hasStdoutSpill = false;
+  let hasStderrSpill = false;
+
+  if (onLargeOutput === "spill") {
+    spillFile = createSpillFile();
+  }
+
+  // For pagination, we need to track complete streams but cap memory usage
+  let stdoutBuffer = Buffer.alloc(0);
+  let stderrBuffer = Buffer.alloc(0);
+  let totalStdoutBytes = 0;
+  let totalStderrBytes = 0;
+  const started = Date.now();
+
+  child.stdout.on("data", (c: Buffer) => {
+    totalStdoutBytes += c.length;
+
+    // Cap in-memory buffer to prevent OOM, but keep enough for current page
+    const maxMemoryBytes = Math.max(limitBytes * 2, maxBytes); // Keep 2x limit for current page context
+    if (stdoutBuffer.length > maxMemoryBytes) {
+      // Keep only the last part of the buffer (current page context)
+      const keepBytes = Math.min(limitBytes, maxMemoryBytes / 2);
+      stdoutBuffer = stdoutBuffer.slice(-keepBytes);
+    }
+
+    // Only keep data if we need it for in-memory processing
+    if (stdoutBuffer.length + c.length <= maxMemoryBytes) {
+      stdoutBuffer = Buffer.concat([stdoutBuffer, c]);
+    } else {
+      // If adding this chunk would exceed memory limit, just update total but don't store
+      debugLog("Skipping stdout buffer storage due to memory limit", { chunkSize: c.length, total: totalStdoutBytes });
+    }
+
+    // Write to spill file for complete stream access
+    if (spillFile) {
+      try {
+        appendFileSync(spillFile.path, c);
+        hasStdoutSpill = true;
+      } catch (e) {
+        debugLog("Failed to write to stdout spill file", e);
+      }
+    }
+  });
+
+  child.stderr.on("data", (c: Buffer) => {
+    totalStderrBytes += c.length;
+
+    // Cap in-memory buffer to prevent OOM
+    const maxMemoryBytes = Math.max(limitBytes * 2, maxBytes);
+    if (stderrBuffer.length > maxMemoryBytes) {
+      const keepBytes = Math.min(limitBytes, maxMemoryBytes / 2);
+      stderrBuffer = stderrBuffer.slice(-keepBytes);
+    }
+
+    stderrBuffer = Buffer.concat([stderrBuffer, c]);
+
+    // Write to stderr spill file
+    if (spillFile) {
+      try {
+        appendFileSync(spillFile.stderrPath!, c);
+        hasStderrSpill = true;
+      } catch (e) {
+        debugLog("Failed to write to stderr spill file", e);
+      }
+    }
+  });
+
+  const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    child.on("exit", (code, signal) => resolve({ code, signal }));
+    child.on("error", (error) => {
+      debugLog("Child process error", { error: error.message });
+      resolve({ code: -1, signal: null });
+    });
+  });
+
+  const killer = setTimeout(() => {
+    debugLog("Command timed out, killing process", { timeoutMs });
+    child.kill("SIGKILL");
+  }, timeoutMs);
+
+  const result = await exit;
+  clearTimeout(killer);
+
+  const durationMs = Date.now() - started;
+
+  // For pagination, we need to read from spill files to get accurate byte-aligned data
+  let returnedStdout = "";
+  let returnedStderr = "";
+
+  if (spillFile && hasStdoutSpill) {
+    // Read only the specific byte range from stdout spill file
+    try {
+      const stdoutEnd = Math.min(startOffset + limitBytes, totalStdoutBytes);
+      returnedStdout = await readFileRange(spillFile.path, startOffset, stdoutEnd);
+    } catch (e) {
+      debugLog("Failed to read from stdout spill file", e);
+      // Fallback to in-memory buffer with byte-aware slicing
+      const stdoutEnd = Math.min(startOffset + limitBytes, stdoutBuffer.length);
+      returnedStdout = stdoutBuffer.subarray(startOffset, stdoutEnd).toString("utf8");
+    }
+  } else {
+    // No spill file, use in-memory buffer with byte-aware slicing
+    const stdoutEnd = Math.min(startOffset + limitBytes, stdoutBuffer.length);
+    returnedStdout = stdoutBuffer.subarray(startOffset, stdoutEnd).toString("utf8");
+  }
+
+  // Handle stderr - use policy limit for in-memory stderr
+  if (spillFile && hasStderrSpill) {
+    try {
+      const stderrEnd = Math.min(maxBytes, totalStderrBytes);
+      returnedStderr = await readFileRange(spillFile.stderrPath!, 0, stderrEnd);
+    } catch (e) {
+      debugLog("Failed to read from stderr spill file", e);
+      const stderrEnd = Math.min(maxBytes, stderrBuffer.length);
+      returnedStderr = stderrBuffer.subarray(0, stderrEnd).toString("utf8");
+    }
+  } else {
+    const stderrEnd = Math.min(maxBytes, stderrBuffer.length);
+    returnedStderr = stderrBuffer.subarray(0, stderrEnd).toString("utf8");
+  }
+
+  // Determine if we need pagination
+  const stdoutLines = countLines(returnedStdout);
+  const stderrLines = countLines(returnedStderr);
+  const totalBytes = totalStdoutBytes + totalStderrBytes;
+  const needsPagination = totalStdoutBytes > limitBytes || stdoutLines > limitLines;
+
+  let truncated = false;
+  let nextCursor: string | undefined;
+
+  if (needsPagination && onLargeOutput === "truncate") {
+    truncated = true;
+  } else if (needsPagination && onLargeOutput === "error") {
+    throw new Error(`Output too large: ${totalBytes} bytes, ${stdoutLines} lines. Use pagination or spill mode.`);
+  } else if (needsPagination && spillFile) {
+    // Calculate next cursor based on actual bytes returned
+    const actualBytesReturned = Buffer.byteLength(returnedStdout, 'utf8');
+    const nextOffset = startOffset + actualBytesReturned;
+    nextCursor = totalStdoutBytes > nextOffset ? `bytes:${nextOffset}` : undefined;
+  }
+
+  const resultObj: any = {
+    exitCode: result.code ?? -1,
+    signal: result.signal ?? null,
+    stdout: returnedStdout,
+    stderr: returnedStderr,
+    durationMs,
+    totalBytes,
+    truncated,
+    mime: detectMimeType(returnedStdout),
+    lineCount: stdoutLines,
+    stderrCount: stderrLines
+  };
+
+  if (nextCursor) {
+    resultObj.nextCursor = nextCursor;
+  }
+
+  // Only include spill file if we actually created one and wrote to it
+  if (spillFile && (hasStdoutSpill || hasStderrSpill)) {
+    // Create a clean spill file object with only the URIs that were actually used
+    const cleanSpillFile: SpillFile = {
+      uri: hasStdoutSpill ? spillFile.uri : '',
+      path: hasStdoutSpill ? spillFile.path : '',
+      stderrUri: hasStderrSpill ? spillFile.stderrUri : undefined,
+      stderrPath: hasStderrSpill ? spillFile.stderrPath : undefined,
+      cleanup: () => {
+        try {
+          if (hasStdoutSpill && existsSync(spillFile!.path)) {
+            unlinkSync(spillFile!.path);
+          }
+          if (hasStderrSpill && existsSync(spillFile!.stderrPath!)) {
+            unlinkSync(spillFile!.stderrPath!);
+          }
+        } catch (e) {
+          debugLog("Failed to cleanup spill files", { path: spillFile!.path, stderrPath: spillFile!.stderrPath, error: e });
+        }
+      }
+    };
+
+    // Only set non-empty URIs
+    if (hasStdoutSpill) {
+      cleanSpillFile.uri = spillFile.uri;
+      cleanSpillFile.path = spillFile.path;
+    }
+    if (hasStderrSpill) {
+      cleanSpillFile.stderrUri = spillFile.stderrUri;
+      cleanSpillFile.stderrPath = spillFile.stderrPath;
+    }
+
+    resultObj.spillFile = cleanSpillFile;
+  }
+
+  return resultObj;
+}
+
 // Compute effective per-call limits from request input and global policy
 export function getEffectiveLimits(input: any, testPolicy?: Policy): { effectiveTimeoutMs: number; effectiveMaxBytes: number } {
   const currentPolicy = testPolicy || policy;
@@ -256,7 +638,7 @@ debugLog("Server instance created");
 export const tools: Tool[] = [
   {
     name: "shell_exec",
-    description: "Execute an allow-listed command within the sandbox (git project root). Optional cwd must be RELATIVE to the sandbox root.",
+    description: "Execute an allow-listed command within the sandbox (git project root). Optional cwd must be RELATIVE to the sandbox root. Supports pagination via limit_bytes and next_cursor. Automatically spills large outputs to file with spill_uri.",
     inputSchema: {
       type: "object",
       properties: {
@@ -267,9 +649,31 @@ export const tools: Tool[] = [
         timeout_ms: { type: "number", minimum: 1, maximum: 300000, description: "Command timeout in milliseconds (deprecated, use timeout_seconds instead)" },
         // New optional per-request overrides
         timeout_seconds: { type: "number", minimum: 1, maximum: 300, description: "Command timeout in seconds (1-300, will be clamped to policy limits)" },
-        max_output_bytes: { type: "number", minimum: 1000, maximum: 10000000, description: "Maximum output size in bytes (1000-10M, will be clamped to policy limits)" }
+        max_output_bytes: { type: "number", minimum: 1000, maximum: 10000000, description: "Maximum output size in bytes (1000-10M, will be clamped to policy limits)" },
+        page: {
+          type: "object",
+          properties: {
+            cursor: { type: "string", description: "Opaque position marker (e.g., 'bytes:0')" },
+            limit_bytes: { type: "number", minimum: 1, maximum: 10000000, description: "Default: 64 KB", default: 65536 },
+            limit_lines: { type: "number", minimum: 1, maximum: 100000, description: "Optional: stops on whichever hits first" }
+          }
+        },
+        on_large_output: { type: "string", enum: ["spill", "truncate", "error"], description: "How to handle large outputs", default: "spill" }
       },
       required: ["cmd"]
+    }
+  },
+  {
+    name: "read_file_chunk",
+    description: "Reads paginated data from a spilled file (stdout or stderr). Accepts cursor and limit_bytes to safely stream contents.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        uri: { type: "string", description: "URI of the spilled file (e.g., 'mcp://tmp/exec-abc123.out' or 'mcp://tmp/exec-abc123.err')" },
+        cursor: { type: "string", description: "Opaque position marker (e.g., 'bytes:0')", default: "bytes:0" },
+        limit_bytes: { type: "number", minimum: 1, maximum: 10000000, description: "Maximum bytes to read", default: 65536 }
+      },
+      required: ["uri"]
     }
   },
   {
@@ -316,27 +720,63 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     // Compute effective per-request limits
     const { effectiveTimeoutMs, effectiveMaxBytes } = getEffectiveLimits(input, policy);
-    const res = await execOnce(input.cmd, input.args || [], resolvedCwd, effectiveTimeoutMs, effectiveMaxBytes);
+
+    // Parse pagination and large output handling options
+    const pagination: PaginationConfig | undefined = input.page;
+    const onLargeOutput: LargeOutputBehavior = input.on_large_output || "spill";
+
+    const res = await execWithPagination(
+      input.cmd,
+      input.args || [],
+      resolvedCwd,
+      effectiveTimeoutMs,
+      effectiveMaxBytes,
+      pagination,
+      onLargeOutput
+    );
+
+    // Clean up spill file after response if not needed for pagination
+    if (res.spillFile && !res.nextCursor) {
+      res.spillFile.cleanup();
+      delete res.spillFile;
+    }
+
+    const responseObj: any = {
+      exit_code: res.exitCode,
+      signal: res.signal,
+      duration_ms: res.durationMs,
+      stdout_chunk: res.stdout,
+      stderr_chunk: res.stderr,
+      bytes_start: pagination?.cursor ? parseCursor(pagination.cursor).offset : 0,
+      bytes_end: pagination?.cursor ? parseCursor(pagination.cursor).offset + Buffer.byteLength(res.stdout, 'utf8') : Buffer.byteLength(res.stdout, 'utf8'),
+      total_bytes: res.totalBytes,
+      truncated: res.truncated,
+      next_cursor: res.nextCursor,
+      mime: res.mime,
+      line_count: res.lineCount,
+      stderr_count: res.stderrCount,
+      cmdline: [input.cmd, ...(input.args || [])],
+      cwd: resolvedCwd,
+      limits: {
+        timeout_ms: effectiveTimeoutMs,
+        max_output_bytes: effectiveMaxBytes
+      }
+    };
+
+    // Only include spill URIs if they were actually created and used
+    if (res.spillFile?.uri) {
+      responseObj.spill_uri = res.spillFile.uri;
+    }
+    if (res.spillFile?.stderrUri) {
+      responseObj.stderr_spill_uri = res.spillFile.stderrUri;
+    }
 
     return {
       content: [{
         type: "resource",
         resource: {
           uri: `exec://${input.cmd}`,
-          text: JSON.stringify({
-            ok: res.exitCode === 0,
-            exit_code: res.exitCode,
-            signal: res.signal,
-            duration_ms: res.durationMs,
-            stdout: res.stdout,
-            stderr: res.stderr,
-            cmdline: [input.cmd, ...(input.args || [])],
-            cwd: resolvedCwd,
-            limits: {
-              timeout_ms: effectiveTimeoutMs,
-              max_output_bytes: effectiveMaxBytes
-            }
-          }, null, 2)
+          text: JSON.stringify(responseObj, null, 2)
         }
       }]
     };
@@ -373,7 +813,67 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       content: [{ type: "text", text: JSON.stringify(info, null, 2) }]
     };
   }
-  
+
+  if (name === "read_file_chunk") {
+    const input = args as any;
+    const uri = input.uri;
+    const cursor = input.cursor || "bytes:0";
+    const limitBytes = input.limit_bytes || 65536;
+
+    // Extract file path from URI
+    if (!uri.startsWith("mcp://tmp/")) {
+      return {
+        content: [{ type: "text", text: `Error: Invalid URI format. Expected mcp://tmp/..., got: ${uri}` }],
+        isError: true,
+      };
+    }
+
+    const fileName = uri.substring("mcp://tmp/".length);
+    const filePath = join(homedir(), ".shemcp", "tmp", fileName);
+
+    if (!existsSync(filePath)) {
+      return {
+        content: [{ type: "text", text: `Error: Spill file not found: ${filePath}` }],
+        isError: true,
+      };
+    }
+
+    try {
+       // Get file stats to determine total size without reading whole file
+       const totalBytes = statSync(filePath).size;
+
+       const { offset } = parseCursor(cursor);
+       const endPos = Math.min(offset + limitBytes, totalBytes);
+
+       // Use range reader to avoid loading whole file into RAM
+       const chunk = await readFileRange(filePath, offset, endPos);
+
+       const nextCursor = endPos < totalBytes ? `bytes:${endPos}` : undefined;
+
+       return {
+         content: [{
+           type: "resource",
+           resource: {
+             uri,
+             text: JSON.stringify({
+               data: chunk,
+               bytes_start: offset,
+               bytes_end: endPos,
+               total_bytes: totalBytes,
+               next_cursor: nextCursor,
+               mime: detectMimeType(chunk)
+             }, null, 2)
+           }
+         }]
+       };
+     } catch (error) {
+       return {
+         content: [{ type: "text", text: `Error reading spill file: ${error}` }],
+         isError: true,
+       };
+     }
+  }
+
   throw new Error(`Unknown tool: ${name}`);
 });
 

@@ -143,10 +143,11 @@ describe('MCP Shell Server', () => {
 
   describe('Tool Definitions', () => {
     it('should define all expected tools', () => {
-      expect(tools.length).toBe(2);
+      expect(tools.length).toBe(3);
       const toolNames = tools.map(t => t.name);
       expect(toolNames).toContain("shell_exec");
       expect(toolNames).toContain("shell_info");
+      expect(toolNames).toContain("read_file_chunk");
     });
 
     it('should have proper tool schemas', () => {
@@ -168,6 +169,16 @@ describe('MCP Shell Server', () => {
     it('should reject absolute cwd in shell_exec description', () => {
       const execTool = tools.find(t => t.name === "shell_exec");
       expect(execTool?.description?.toLowerCase()).toContain("relative");
+    });
+
+    it('should have read_file_chunk tool with proper schema', () => {
+      const chunkTool = tools.find(t => t.name === "read_file_chunk");
+      expect(chunkTool).toBeDefined();
+      expect(chunkTool?.inputSchema.type).toBe("object");
+      expect(chunkTool?.inputSchema.properties?.uri).toBeDefined();
+      expect(chunkTool?.inputSchema.properties?.cursor).toBeDefined();
+      expect(chunkTool?.inputSchema.properties?.limit_bytes).toBeDefined();
+      expect(chunkTool?.inputSchema.required).toContain("uri");
     });
   });
 
