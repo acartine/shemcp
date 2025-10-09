@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants, appendFileSync, mkdirSync, existsSync, realpathSync, readFileSync, writeFileSync, unlinkSync, createReadStream } from "node:fs";
+import { accessSync, constants, appendFileSync, mkdirSync, existsSync, realpathSync, readFileSync, writeFileSync, unlinkSync, createReadStream, statSync } from "node:fs";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { homedir } from "node:os";
@@ -312,28 +312,33 @@ function countLines(content: string): number {
 }
 
 async function readFileRange(filePath: string, start: number, end: number): Promise<string> {
-  // Use createReadStream to read only the requested byte range
-  return new Promise<string>((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let totalBytesRead = 0;
+   // Handle edge case where end <= start to avoid ERR_OUT_OF_RANGE
+   if (end <= start) {
+     return Promise.resolve('');
+   }
 
-    const stream = createReadStream(filePath, { start, end: end - 1 });
+   // Use createReadStream to read only the requested byte range
+   return new Promise<string>((resolve, reject) => {
+     const chunks: Buffer[] = [];
+     let totalBytesRead = 0;
 
-    stream.on('data', (chunk: any) => {
-      chunks.push(Buffer.from(chunk));
-      totalBytesRead += Buffer.from(chunk).length;
-    });
+     const stream = createReadStream(filePath, { start, end: end - 1 });
 
-    stream.on('end', () => {
-      const buffer = Buffer.concat(chunks);
-      resolve(buffer.toString('utf8'));
-    });
+     stream.on('data', (chunk: any) => {
+       chunks.push(Buffer.from(chunk));
+       totalBytesRead += Buffer.from(chunk).length;
+     });
 
-    stream.on('error', (error) => {
-      reject(error);
-    });
-  });
-}
+     stream.on('end', () => {
+       const buffer = Buffer.concat(chunks);
+       resolve(buffer.toString('utf8'));
+     });
+
+     stream.on('error', (error) => {
+       reject(error);
+     });
+   });
+ }
 
 async function execWithPagination(
   cmd: string,
@@ -834,35 +839,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     try {
-      const fileContent = readFileSync(filePath, 'utf8');
-      const { offset } = parseCursor(cursor);
-      const endPos = Math.min(offset + limitBytes, fileContent.length);
-      const chunk = fileContent.substring(offset, endPos);
+       // Get file stats to determine total size without reading whole file
+       const totalBytes = statSync(filePath).size;
 
-      const nextCursor = endPos < fileContent.length ? `bytes:${endPos}` : undefined;
+       const { offset } = parseCursor(cursor);
+       const endPos = Math.min(offset + limitBytes, totalBytes);
 
-      return {
-        content: [{
-          type: "resource",
-          resource: {
-            uri,
-            text: JSON.stringify({
-              data: chunk,
-              bytes_start: offset,
-              bytes_end: endPos,
-              total_bytes: fileContent.length,
-              next_cursor: nextCursor,
-              mime: detectMimeType(chunk)
-            }, null, 2)
-          }
-        }]
-      };
-    } catch (error) {
-      return {
-        content: [{ type: "text", text: `Error reading spill file: ${error}` }],
-        isError: true,
-      };
-    }
+       // Use range reader to avoid loading whole file into RAM
+       const chunk = await readFileRange(filePath, offset, endPos);
+
+       const nextCursor = endPos < totalBytes ? `bytes:${endPos}` : undefined;
+
+       return {
+         content: [{
+           type: "resource",
+           resource: {
+             uri,
+             text: JSON.stringify({
+               data: chunk,
+               bytes_start: offset,
+               bytes_end: endPos,
+               total_bytes: totalBytes,
+               next_cursor: nextCursor,
+               mime: detectMimeType(chunk)
+             }, null, 2)
+           }
+         }]
+       };
+     } catch (error) {
+       return {
+         content: [{ type: "text", text: `Error reading spill file: ${error}` }],
+         isError: true,
+       };
+     }
   }
 
   throw new Error(`Unknown tool: ${name}`);
