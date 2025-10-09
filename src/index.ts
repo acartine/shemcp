@@ -66,8 +66,8 @@ export type LargeOutputBehavior = "spill" | "truncate" | "error";
 export type SpillFile = {
   uri: string;
   path: string;
-  stderrUri?: string;
-  stderrPath?: string;
+  stderrUri?: string | undefined;
+  stderrPath?: string | undefined;
   cleanup: () => void;
 };
 
@@ -222,8 +222,8 @@ function createSpillFile(): SpillFile {
   return {
     uri,
     path,
-    stderrUri,
-    stderrPath,
+    stderrUri: undefined,
+    stderrPath: undefined,
     cleanup: () => {
       try {
         if (existsSync(path)) {
@@ -287,26 +287,38 @@ async function execWithPagination(
 
   // Create spill file if needed
   let spillFile: SpillFile | undefined;
+  let hasStdoutSpill = false;
+  let hasStderrSpill = false;
+
   if (onLargeOutput === "spill") {
     spillFile = createSpillFile();
   }
 
-  // Collect all output for accurate slicing
-  let fullStdout = Buffer.alloc(0);
-  let fullStderr = Buffer.alloc(0);
+  // For pagination, we need to track complete streams but cap memory usage
+  let stdoutBuffer = Buffer.alloc(0);
+  let stderrBuffer = Buffer.alloc(0);
   let totalStdoutBytes = 0;
   let totalStderrBytes = 0;
   const started = Date.now();
 
   child.stdout.on("data", (c: Buffer) => {
-    // Always accumulate the complete output
-    fullStdout = Buffer.concat([fullStdout, c]);
     totalStdoutBytes += c.length;
 
-    // Write complete stream to spill file for accurate pagination
+    // Cap in-memory buffer to prevent OOM, but keep enough for current page
+    const maxMemoryBytes = Math.max(limitBytes * 2, maxBytes); // Keep 2x limit for current page context
+    if (stdoutBuffer.length > maxMemoryBytes) {
+      // Keep only the last part of the buffer (current page context)
+      const keepBytes = Math.min(limitBytes, maxMemoryBytes / 2);
+      stdoutBuffer = stdoutBuffer.slice(-keepBytes);
+    }
+
+    stdoutBuffer = Buffer.concat([stdoutBuffer, c]);
+
+    // Write to spill file for complete stream access
     if (spillFile) {
       try {
         appendFileSync(spillFile.path, c);
+        hasStdoutSpill = true;
       } catch (e) {
         debugLog("Failed to write to stdout spill file", e);
       }
@@ -314,14 +326,22 @@ async function execWithPagination(
   });
 
   child.stderr.on("data", (c: Buffer) => {
-    // Always accumulate the complete output
-    fullStderr = Buffer.concat([fullStderr, c]);
     totalStderrBytes += c.length;
 
-    // Write complete stream to stderr spill file
+    // Cap in-memory buffer to prevent OOM
+    const maxMemoryBytes = Math.max(limitBytes * 2, maxBytes);
+    if (stderrBuffer.length > maxMemoryBytes) {
+      const keepBytes = Math.min(limitBytes, maxMemoryBytes / 2);
+      stderrBuffer = stderrBuffer.slice(-keepBytes);
+    }
+
+    stderrBuffer = Buffer.concat([stderrBuffer, c]);
+
+    // Write to stderr spill file
     if (spillFile) {
       try {
         appendFileSync(spillFile.stderrPath!, c);
+        hasStderrSpill = true;
       } catch (e) {
         debugLog("Failed to write to stderr spill file", e);
       }
@@ -340,17 +360,47 @@ async function execWithPagination(
   clearTimeout(killer);
 
   const durationMs = Date.now() - started;
-  const fullStdoutStr = fullStdout.toString("utf8");
-  const fullStderrStr = fullStderr.toString("utf8");
 
-  // Calculate what portion to return for this page
-  const stdoutEnd = Math.min(startOffset + limitBytes, totalStdoutBytes);
-  const returnedStdout = fullStdoutStr.substring(startOffset, stdoutEnd);
-  const returnedStderr = fullStderrStr.substring(0, Math.min(maxBytes, totalStderrBytes));
+  // For pagination, we need to read from spill files to get accurate byte-aligned data
+  let returnedStdout = "";
+  let returnedStderr = "";
+
+  if (spillFile && hasStdoutSpill) {
+    // Read the complete stdout from spill file for accurate byte slicing
+    try {
+      const fullStdoutContent = readFileSync(spillFile.path, 'utf8');
+      const stdoutEnd = Math.min(startOffset + limitBytes, totalStdoutBytes);
+      returnedStdout = fullStdoutContent.substring(startOffset, stdoutEnd);
+    } catch (e) {
+      debugLog("Failed to read from stdout spill file", e);
+      // Fallback to in-memory buffer
+      const stdoutStr = stdoutBuffer.toString("utf8");
+      const stdoutEnd = Math.min(startOffset + limitBytes, stdoutBuffer.length);
+      returnedStdout = stdoutStr.substring(startOffset, stdoutEnd);
+    }
+  } else {
+    // No spill file, use in-memory buffer with byte-aware slicing
+    const stdoutStr = stdoutBuffer.toString("utf8");
+    const stdoutEnd = Math.min(startOffset + limitBytes, stdoutBuffer.length);
+    returnedStdout = stdoutStr.substring(startOffset, stdoutEnd);
+  }
+
+  // Handle stderr - use policy limit for in-memory stderr
+  if (spillFile && hasStderrSpill) {
+    try {
+      const fullStderrContent = readFileSync(spillFile.stderrPath!, 'utf8');
+      returnedStderr = fullStderrContent.substring(0, Math.min(maxBytes, totalStderrBytes));
+    } catch (e) {
+      debugLog("Failed to read from stderr spill file", e);
+      returnedStderr = stderrBuffer.toString("utf8").substring(0, maxBytes);
+    }
+  } else {
+    returnedStderr = stderrBuffer.toString("utf8").substring(0, maxBytes);
+  }
 
   // Determine if we need pagination
-  const stdoutLines = countLines(fullStdoutStr);
-  const stderrLines = countLines(fullStderrStr);
+  const stdoutLines = countLines(returnedStdout);
+  const stderrLines = countLines(returnedStderr);
   const totalBytes = totalStdoutBytes + totalStderrBytes;
   const needsPagination = totalStdoutBytes > limitBytes || stdoutLines > limitLines;
 
@@ -362,8 +412,10 @@ async function execWithPagination(
   } else if (needsPagination && onLargeOutput === "error") {
     throw new Error(`Output too large: ${totalBytes} bytes, ${stdoutLines} lines. Use pagination or spill mode.`);
   } else if (needsPagination && spillFile) {
-    // In spill mode, we return partial content and spill URI
-    nextCursor = totalStdoutBytes > stdoutEnd ? `bytes:${stdoutEnd}` : undefined;
+    // Calculate next cursor based on actual bytes returned
+    const actualBytesReturned = Buffer.byteLength(returnedStdout, 'utf8');
+    const nextOffset = startOffset + actualBytesReturned;
+    nextCursor = totalStdoutBytes > nextOffset ? `bytes:${nextOffset}` : undefined;
   }
 
   const resultObj: any = {
@@ -375,16 +427,47 @@ async function execWithPagination(
     totalBytes,
     truncated,
     mime: detectMimeType(returnedStdout),
-    lineCount: countLines(returnedStdout),
-    stderrCount: countLines(returnedStderr)
+    lineCount: stdoutLines,
+    stderrCount: stderrLines
   };
 
   if (nextCursor) {
     resultObj.nextCursor = nextCursor;
   }
 
-  if (spillFile) {
-    resultObj.spillFile = spillFile;
+  // Only include spill file if we actually created one and wrote to it
+  if (spillFile && (hasStdoutSpill || hasStderrSpill)) {
+    // Create a clean spill file object with only the URIs that were actually used
+    const cleanSpillFile: SpillFile = {
+      uri: hasStdoutSpill ? spillFile.uri : '',
+      path: hasStdoutSpill ? spillFile.path : '',
+      stderrUri: hasStderrSpill ? spillFile.stderrUri : undefined,
+      stderrPath: hasStderrSpill ? spillFile.stderrPath : undefined,
+      cleanup: () => {
+        try {
+          if (hasStdoutSpill && existsSync(spillFile!.path)) {
+            unlinkSync(spillFile!.path);
+          }
+          if (hasStderrSpill && existsSync(spillFile!.stderrPath!)) {
+            unlinkSync(spillFile!.stderrPath!);
+          }
+        } catch (e) {
+          debugLog("Failed to cleanup spill files", { path: spillFile!.path, stderrPath: spillFile!.stderrPath, error: e });
+        }
+      }
+    };
+
+    // Only set non-empty URIs
+    if (hasStdoutSpill) {
+      cleanSpillFile.uri = spillFile.uri;
+      cleanSpillFile.path = spillFile.path;
+    }
+    if (hasStderrSpill) {
+      cleanSpillFile.stderrUri = spillFile.stderrUri;
+      cleanSpillFile.stderrPath = spillFile.stderrPath;
+    }
+
+    resultObj.spillFile = cleanSpillFile;
   }
 
   return resultObj;
@@ -564,34 +647,42 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       delete res.spillFile;
     }
 
+    const responseObj: any = {
+      exit_code: res.exitCode,
+      signal: res.signal,
+      duration_ms: res.durationMs,
+      stdout_chunk: res.stdout,
+      stderr_chunk: res.stderr,
+      bytes_start: pagination?.cursor ? parseCursor(pagination.cursor).offset : 0,
+      bytes_end: pagination?.cursor ? parseCursor(pagination.cursor).offset + Buffer.byteLength(res.stdout, 'utf8') : Buffer.byteLength(res.stdout, 'utf8'),
+      total_bytes: res.totalBytes,
+      truncated: res.truncated,
+      next_cursor: res.nextCursor,
+      mime: res.mime,
+      line_count: res.lineCount,
+      stderr_count: res.stderrCount,
+      cmdline: [input.cmd, ...(input.args || [])],
+      cwd: resolvedCwd,
+      limits: {
+        timeout_ms: effectiveTimeoutMs,
+        max_output_bytes: effectiveMaxBytes
+      }
+    };
+
+    // Only include spill URIs if they were actually created and used
+    if (res.spillFile?.uri) {
+      responseObj.spill_uri = res.spillFile.uri;
+    }
+    if (res.spillFile?.stderrUri) {
+      responseObj.stderr_spill_uri = res.spillFile.stderrUri;
+    }
+
     return {
       content: [{
         type: "resource",
         resource: {
           uri: `exec://${input.cmd}`,
-          text: JSON.stringify({
-            exit_code: res.exitCode,
-            signal: res.signal,
-            duration_ms: res.durationMs,
-            stdout_chunk: res.stdout,
-            stderr_chunk: res.stderr,
-            bytes_start: pagination?.cursor ? parseCursor(pagination.cursor).offset : 0,
-            bytes_end: pagination?.cursor ? parseCursor(pagination.cursor).offset + res.stdout.length : res.stdout.length,
-            total_bytes: res.totalBytes,
-            truncated: res.truncated,
-            next_cursor: res.nextCursor,
-            spill_uri: res.spillFile?.uri,
-            stderr_spill_uri: res.spillFile?.stderrUri,
-            mime: res.mime,
-            line_count: res.lineCount,
-            stderr_count: res.stderrCount,
-            cmdline: [input.cmd, ...(input.args || [])],
-            cwd: resolvedCwd,
-            limits: {
-              timeout_ms: effectiveTimeoutMs,
-              max_output_bytes: effectiveMaxBytes
-            }
-          }, null, 2)
+          text: JSON.stringify(responseObj, null, 2)
         }
       }]
     };
