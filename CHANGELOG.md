@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.9.0
+
+### Minor Changes
+
+- [#42](https://github.com/acartine/shemcp/pull/42) [`215ff6e`](https://github.com/acartine/shemcp/commit/215ff6e6afb4d510dd7a6d423f89c4fcbc942bc9) Thanks [@acartine](https://github.com/acartine)! - Add pagination and large output handling to shell MCP server
+
+  - **New `shell_exec` features:**
+
+    - Add `page` parameter with `cursor`, `limit_bytes`, and `limit_lines` options
+    - Add `on_large_output` parameter with "spill", "truncate", or "error" modes
+    - Return comprehensive pagination metadata (`next_cursor`, `total_bytes`, `truncated`, etc.)
+
+  - **New `read_file_chunk` tool:**
+
+    - Read paginated data from spilled files using `cursor` and `limit_bytes`
+    - Support for both stdout and stderr spill files
+    - Safe streaming of large command outputs
+
+  - **Spill file management:**
+
+    - Automatic creation of temporary files for large outputs
+    - Proper cleanup when files are no longer needed
+    - URI-based file referencing for both stdout and stderr
+
+  - **Enhanced response format:**
+    - Include `spill_uri` and `stderr_spill_uri` for spilled outputs
+    - Add MIME type detection and line counting
+    - Maintain backward compatibility with existing functionality
+
+  This feature prevents token overflow errors when dealing with large command outputs while maintaining full functionality and security constraints.
+
+### Patch Changes
+
+- [#42](https://github.com/acartine/shemcp/pull/42) [`760ae79`](https://github.com/acartine/shemcp/commit/760ae7951e766de17345b48f5822ab887f999961) Thanks [@acartine](https://github.com/acartine)! - Fix PR #42 review comments for shell pagination and spill file handling
+
+  - **Fixed `read_file_chunk` memory usage**: Now reuses range reader instead of loading entire spill files into RAM
+  - **Fixed `readFileRange` edge case**: Added proper handling for `end <= start` to avoid ERR_OUT_OF_RANGE errors
+  - **Improved file size detection**: Uses `statSync` to get file size without reading content into memory
+  - **Enhanced error handling**: Better bounds checking and validation for pagination parameters
+
 ## 0.8.0
 
 ### Minor Changes
