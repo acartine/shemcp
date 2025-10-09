@@ -66,6 +66,8 @@ export type LargeOutputBehavior = "spill" | "truncate" | "error";
 export type SpillFile = {
   uri: string;
   path: string;
+  stderrUri?: string;
+  stderrPath?: string;
   cleanup: () => void;
 };
 
@@ -214,17 +216,24 @@ function createSpillFile(): SpillFile {
   const id = randomUUID();
   const path = join(tempDir, `exec-${id}.out`);
   const uri = `mcp://tmp/exec-${id}.out`;
+  const stderrPath = join(tempDir, `exec-${id}.err`);
+  const stderrUri = `mcp://tmp/exec-${id}.err`;
 
   return {
     uri,
     path,
+    stderrUri,
+    stderrPath,
     cleanup: () => {
       try {
         if (existsSync(path)) {
           unlinkSync(path);
         }
+        if (existsSync(stderrPath)) {
+          unlinkSync(stderrPath);
+        }
       } catch (e) {
-        debugLog("Failed to cleanup spill file", { path, error: e });
+        debugLog("Failed to cleanup spill files", { path, stderrPath, error: e });
       }
     }
   };
@@ -270,11 +279,6 @@ async function execWithPagination(
   stderrCount: number;
 }> {
   const child = spawn(cmd, args, { cwd, env: filteredEnv(), stdio: ["ignore", "pipe", "pipe"] });
-  let stdoutChunks: Buffer[] = [];
-  let stderrChunks: Buffer[] = [];
-  let totalStdoutBytes = 0;
-  let totalStderrBytes = 0;
-  const started = Date.now();
 
   // Parse pagination config
   const limitBytes = pagination?.limit_bytes || 65536;
@@ -287,52 +291,39 @@ async function execWithPagination(
     spillFile = createSpillFile();
   }
 
+  // Collect all output for accurate slicing
+  let fullStdout = Buffer.alloc(0);
+  let fullStderr = Buffer.alloc(0);
+  let totalStdoutBytes = 0;
+  let totalStderrBytes = 0;
+  const started = Date.now();
+
   child.stdout.on("data", (c: Buffer) => {
-    const currentTotal = totalStdoutBytes;
-    const limit = limitBytes;
-
-    if (currentTotal >= startOffset) {
-      const remaining = limit - (currentTotal - startOffset);
-      if (remaining > 0) {
-        const chunkToAdd = c.slice(0, remaining);
-        stdoutChunks.push(chunkToAdd);
-      }
-    }
-
-    // Always accumulate for total counts
+    // Always accumulate the complete output
+    fullStdout = Buffer.concat([fullStdout, c]);
     totalStdoutBytes += c.length;
 
-    // Spill to file if configured
-    if (spillFile && totalStdoutBytes > limitBytes) {
+    // Write complete stream to spill file for accurate pagination
+    if (spillFile) {
       try {
         appendFileSync(spillFile.path, c);
       } catch (e) {
-        debugLog("Failed to write to spill file", e);
+        debugLog("Failed to write to stdout spill file", e);
       }
     }
   });
 
   child.stderr.on("data", (c: Buffer) => {
-    const currentTotal = totalStderrBytes;
-    const limit = maxBytes;
-
-    if (currentTotal >= startOffset) {
-      const remaining = limit - (currentTotal - startOffset);
-      if (remaining > 0) {
-        const chunkToAdd = c.slice(0, remaining);
-        stderrChunks.push(chunkToAdd);
-      }
-    }
-
-    // Always accumulate for total counts
+    // Always accumulate the complete output
+    fullStderr = Buffer.concat([fullStderr, c]);
     totalStderrBytes += c.length;
 
-    // Also spill stderr if configured
-    if (spillFile && totalStderrBytes > maxBytes) {
+    // Write complete stream to stderr spill file
+    if (spillFile) {
       try {
-        appendFileSync(spillFile.path + ".err", c);
+        appendFileSync(spillFile.stderrPath!, c);
       } catch (e) {
-        debugLog("Failed to write stderr to spill file", e);
+        debugLog("Failed to write to stderr spill file", e);
       }
     }
   });
@@ -349,12 +340,17 @@ async function execWithPagination(
   clearTimeout(killer);
 
   const durationMs = Date.now() - started;
-  const fullStdout = Buffer.concat(stdoutChunks).toString("utf8");
-  const fullStderr = Buffer.concat(stderrChunks).toString("utf8");
+  const fullStdoutStr = fullStdout.toString("utf8");
+  const fullStderrStr = fullStderr.toString("utf8");
+
+  // Calculate what portion to return for this page
+  const stdoutEnd = Math.min(startOffset + limitBytes, totalStdoutBytes);
+  const returnedStdout = fullStdoutStr.substring(startOffset, stdoutEnd);
+  const returnedStderr = fullStderrStr.substring(0, Math.min(maxBytes, totalStderrBytes));
 
   // Determine if we need pagination
-  const stdoutLines = countLines(fullStdout);
-  const stderrLines = countLines(fullStderr);
+  const stdoutLines = countLines(fullStdoutStr);
+  const stderrLines = countLines(fullStderrStr);
   const totalBytes = totalStdoutBytes + totalStderrBytes;
   const needsPagination = totalStdoutBytes > limitBytes || stdoutLines > limitLines;
 
@@ -367,21 +363,20 @@ async function execWithPagination(
     throw new Error(`Output too large: ${totalBytes} bytes, ${stdoutLines} lines. Use pagination or spill mode.`);
   } else if (needsPagination && spillFile) {
     // In spill mode, we return partial content and spill URI
-    const bytesEnd = Math.min(startOffset + limitBytes, totalStdoutBytes);
-    nextCursor = `bytes:${bytesEnd}`;
+    nextCursor = totalStdoutBytes > stdoutEnd ? `bytes:${stdoutEnd}` : undefined;
   }
 
   const resultObj: any = {
     exitCode: result.code ?? -1,
     signal: result.signal ?? null,
-    stdout: fullStdout,
-    stderr: fullStderr,
+    stdout: returnedStdout,
+    stderr: returnedStderr,
     durationMs,
     totalBytes,
     truncated,
-    mime: detectMimeType(fullStdout),
-    lineCount: stdoutLines,
-    stderrCount: stderrLines
+    mime: detectMimeType(returnedStdout),
+    lineCount: countLines(returnedStdout),
+    stderrCount: countLines(returnedStderr)
   };
 
   if (nextCursor) {
@@ -493,11 +488,11 @@ export const tools: Tool[] = [
   },
   {
     name: "read_file_chunk",
-    description: "Reads paginated data from a spilled file. Accepts cursor and limit_bytes to safely stream contents.",
+    description: "Reads paginated data from a spilled file (stdout or stderr). Accepts cursor and limit_bytes to safely stream contents.",
     inputSchema: {
       type: "object",
       properties: {
-        uri: { type: "string", description: "URI of the spilled file (e.g., 'mcp://tmp/exec-abc123.out')" },
+        uri: { type: "string", description: "URI of the spilled file (e.g., 'mcp://tmp/exec-abc123.out' or 'mcp://tmp/exec-abc123.err')" },
         cursor: { type: "string", description: "Opaque position marker (e.g., 'bytes:0')", default: "bytes:0" },
         limit_bytes: { type: "number", minimum: 1, maximum: 10000000, description: "Maximum bytes to read", default: 65536 }
       },
@@ -586,6 +581,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             truncated: res.truncated,
             next_cursor: res.nextCursor,
             spill_uri: res.spillFile?.uri,
+            stderr_spill_uri: res.spillFile?.stderrUri,
             mime: res.mime,
             line_count: res.lineCount,
             stderr_count: res.stderrCount,
