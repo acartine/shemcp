@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0
+
+### Minor Changes
+
+- [#40](https://github.com/acartine/shemcp/pull/40) [`34d86ea`](https://github.com/acartine/shemcp/commit/34d86ea274ed1360ff79ab5f4fd2108b4cf6d68a) Thanks [@acartine](https://github.com/acartine)! - Remove shell_set_policy tool from MCP server
+
+  The shell_set_policy tool has been removed as it allowed runtime modification of security policies, which could be used to bypass security restrictions. The MCP server now only provides shell_exec and shell_info tools for safer operation.
+
 ## 0.7.7
 
 ### Patch Changes
