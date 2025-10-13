@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.1
+
+### Patch Changes
+
+- Wait for npm propagation before creating GitHub releases to keep GitHub tags in sync with npm publishes.
+
 ## 0.9.0
 
 ### Minor Changes
