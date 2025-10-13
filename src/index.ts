@@ -205,29 +205,15 @@ export function filteredEnv(testPolicy?: Policy): NodeJS.ProcessEnv {
 /** ---------- Pagination Helpers ---------- */
 
 function parseCursor(cursor: any): { type: string; offset: number } {
-  // Handle new object format
-  if (cursor && typeof cursor === 'object' && cursor.cursor_type) {
-    return {
-      type: cursor.cursor_type || 'bytes',
-      offset: cursor.offset || 0
-    };
-  }
-
-  // Handle legacy string format for backward compatibility
-  if (!cursor || typeof cursor !== 'string') {
+  // Handle object format only (no legacy string support)
+  if (!cursor || typeof cursor !== 'object' || !cursor.cursor_type) {
     return { type: 'bytes', offset: 0 };
   }
 
-  const [type, offsetStr] = cursor.split(':');
-  const offset = parseInt(offsetStr || '0', 10);
-
-  // Validate offset is non-negative
-  if (isNaN(offset) || offset < 0) {
-    debugLog("Invalid cursor offset, defaulting to 0", { cursor, offsetStr });
-    return { type: type || 'bytes', offset: 0 };
-  }
-
-  return { type: type || 'bytes', offset };
+  return {
+    type: cursor.cursor_type || 'bytes',
+    offset: cursor.offset || 0
+  };
 }
 
 function createSpillFile(): SpillFile {
@@ -508,7 +494,7 @@ async function execWithPagination(
   const needsPagination = totalStdoutBytes > limitBytes || stdoutLines > limitLines;
 
   let truncated = false;
-  let nextCursor: string | { cursor_type: string; offset: number } | undefined;
+  let nextCursor: { cursor_type: string; offset: number } | undefined;
 
   if (needsPagination && onLargeOutput === "truncate") {
     truncated = true;
