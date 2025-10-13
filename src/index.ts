@@ -204,22 +204,31 @@ export function filteredEnv(testPolicy?: Policy): NodeJS.ProcessEnv {
 
 /** ---------- Pagination Helpers ---------- */
 
-function parseCursor(cursor: string): { type: string; offset: number } {
-   if (!cursor || typeof cursor !== 'string') {
-     return { type: 'bytes', offset: 0 };
-   }
+function parseCursor(cursor: any): { type: string; offset: number } {
+  // Handle new object format
+  if (cursor && typeof cursor === 'object' && cursor.cursor_type) {
+    return {
+      type: cursor.cursor_type || 'bytes',
+      offset: cursor.offset || 0
+    };
+  }
 
-   const [type, offsetStr] = cursor.split(':');
-   const offset = parseInt(offsetStr || '0', 10);
+  // Handle legacy string format for backward compatibility
+  if (!cursor || typeof cursor !== 'string') {
+    return { type: 'bytes', offset: 0 };
+  }
 
-   // Validate offset is non-negative
-   if (isNaN(offset) || offset < 0) {
-     debugLog("Invalid cursor offset, defaulting to 0", { cursor, offsetStr });
-     return { type: type || 'bytes', offset: 0 };
-   }
+  const [type, offsetStr] = cursor.split(':');
+  const offset = parseInt(offsetStr || '0', 10);
 
-   return { type: type || 'bytes', offset };
- }
+  // Validate offset is non-negative
+  if (isNaN(offset) || offset < 0) {
+    debugLog("Invalid cursor offset, defaulting to 0", { cursor, offsetStr });
+    return { type: type || 'bytes', offset: 0 };
+  }
+
+  return { type: type || 'bytes', offset };
+}
 
 function createSpillFile(): SpillFile {
   const tempDir = join(homedir(), ".shemcp", "tmp");
@@ -499,7 +508,7 @@ async function execWithPagination(
   const needsPagination = totalStdoutBytes > limitBytes || stdoutLines > limitLines;
 
   let truncated = false;
-  let nextCursor: string | undefined;
+  let nextCursor: string | { cursor_type: string; offset: number } | undefined;
 
   if (needsPagination && onLargeOutput === "truncate") {
     truncated = true;
@@ -509,7 +518,9 @@ async function execWithPagination(
     // Calculate next cursor based on actual bytes returned
     const actualBytesReturned = Buffer.byteLength(returnedStdout, 'utf8');
     const nextOffset = startOffset + actualBytesReturned;
-    nextCursor = totalStdoutBytes > nextOffset ? `bytes:${nextOffset}` : undefined;
+    if (totalStdoutBytes > nextOffset) {
+      nextCursor = { cursor_type: 'bytes', offset: nextOffset };
+    }
   }
 
   const resultObj: any = {
@@ -652,15 +663,46 @@ export const tools: Tool[] = [
         max_output_bytes: { type: "number", minimum: 1000, maximum: 10000000, description: "Maximum output size in bytes (1000-10M, will be clamped to policy limits)" },
         page: {
           type: "object",
+          description: "Pagination configuration for handling large command outputs. Enables reading output in chunks to avoid memory issues and improve performance when dealing with large files or long-running commands.",
           properties: {
-            cursor: { type: "string", description: "Opaque position marker (e.g., 'bytes:0')" },
-            limit_bytes: { type: "number", minimum: 1, maximum: 10000000, description: "Default: 64 KB", default: 65536 },
-            limit_lines: { type: "number", minimum: 1, maximum: 100000, description: "Optional: stops on whichever hits first" }
-          }
+            cursor: {
+              type: "object",
+              description: "Position marker indicating where to start reading from the output stream. Used for resuming pagination from a specific point.",
+              properties: {
+                cursor_type: {
+                  type: "string",
+                  description: "Type of cursor positioning. Currently supports 'bytes' for byte-based positioning.",
+                  enum: ["bytes"],
+                  default: "bytes"
+                },
+                offset: {
+                  type: "number",
+                  minimum: 0,
+                  description: "Byte offset from the start of the output stream. For 'bytes' cursor_type, this represents the byte position to start reading from.",
+                  default: 0
+                }
+              },
+              required: ["cursor_type"]
+            },
+            limit_bytes: {
+              type: "number",
+              minimum: 1,
+              maximum: 10000000,
+              description: "Maximum number of bytes to return in this page. Larger values provide more content but use more memory. Default: 64 KB (65536 bytes).",
+              default: 65536
+            },
+            limit_lines: {
+              type: "number",
+              minimum: 1,
+              maximum: 100000,
+              description: "Maximum number of lines to return in this page. The command stops on whichever limit (bytes or lines) is hit first. Useful for text files where line boundaries matter."
+            }
+          },
+          required: ["cursor"]
         },
         on_large_output: { type: "string", enum: ["spill", "truncate", "error"], description: "How to handle large outputs", default: "spill" }
       },
-      required: ["cmd"]
+      required: ["cmd", "page"]
     }
   },
   {
@@ -670,7 +712,25 @@ export const tools: Tool[] = [
       type: "object",
       properties: {
         uri: { type: "string", description: "URI of the spilled file (e.g., 'mcp://tmp/exec-abc123.out' or 'mcp://tmp/exec-abc123.err')" },
-        cursor: { type: "string", description: "Opaque position marker (e.g., 'bytes:0')", default: "bytes:0" },
+        cursor: {
+          type: "object",
+          description: "Position marker indicating where to start reading from the file.",
+          properties: {
+            cursor_type: {
+              type: "string",
+              description: "Type of cursor positioning. Currently supports 'bytes' for byte-based positioning.",
+              enum: ["bytes"],
+              default: "bytes"
+            },
+            offset: {
+              type: "number",
+              minimum: 0,
+              description: "Byte offset from the start of the file.",
+              default: 0
+            }
+          },
+          default: { cursor_type: "bytes", offset: 0 }
+        },
         limit_bytes: { type: "number", minimum: 1, maximum: 10000000, description: "Maximum bytes to read", default: 65536 }
       },
       required: ["uri"]
@@ -817,7 +877,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (name === "read_file_chunk") {
     const input = args as any;
     const uri = input.uri;
-    const cursor = input.cursor || "bytes:0";
+    const cursor = input.cursor || { cursor_type: "bytes", offset: 0 };
     const limitBytes = input.limit_bytes || 65536;
 
     // Extract file path from URI
@@ -848,7 +908,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
        // Use range reader to avoid loading whole file into RAM
        const chunk = await readFileRange(filePath, offset, endPos);
 
-       const nextCursor = endPos < totalBytes ? `bytes:${endPos}` : undefined;
+       const nextCursor = endPos < totalBytes ? { cursor_type: "bytes", offset: endPos } : undefined;
 
        return {
          content: [{
