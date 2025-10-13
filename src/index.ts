@@ -56,7 +56,10 @@ export type Policy = {
 };
 
 export type PaginationConfig = {
-  cursor?: string;        // opaque position marker, e.g., "bytes:0"
+  cursor?: {              // position marker object for pagination
+    cursor_type: string;  // type of cursor positioning (currently "bytes")
+    offset: number;       // byte offset from start of output stream
+  };
   limit_bytes?: number;   // default: 64 KB
   limit_lines?: number;   // optional: stops on whichever hits first
 };
@@ -206,13 +209,22 @@ export function filteredEnv(testPolicy?: Policy): NodeJS.ProcessEnv {
 
 function parseCursor(cursor: any): { type: string; offset: number } {
   // Handle object format only (no legacy string support)
-  if (!cursor || typeof cursor !== 'object' || !cursor.cursor_type) {
-    return { type: 'bytes', offset: 0 };
+  if (!cursor || typeof cursor !== 'object') {
+    throw new Error(`Invalid cursor format: expected object, got ${typeof cursor}. Cursor must be an object with 'cursor_type' and 'offset' properties.`);
+  }
+
+  if (!cursor.cursor_type || typeof cursor.cursor_type !== 'string') {
+    throw new Error(`Invalid cursor format: missing or invalid 'cursor_type' property. Expected string, got ${typeof cursor.cursor_type}.`);
+  }
+
+  const offset = cursor.offset;
+  if (offset !== undefined && (typeof offset !== 'number' || isNaN(offset) || offset < 0)) {
+    throw new Error(`Invalid cursor format: 'offset' must be a non-negative number, got ${offset}.`);
   }
 
   return {
-    type: cursor.cursor_type || 'bytes',
-    offset: cursor.offset || 0
+    type: cursor.cursor_type,
+    offset: offset || 0
   };
 }
 
@@ -635,7 +647,7 @@ debugLog("Server instance created");
 export const tools: Tool[] = [
   {
     name: "shell_exec",
-    description: "Execute an allow-listed command within the sandbox (git project root). Optional cwd must be RELATIVE to the sandbox root. Supports pagination via limit_bytes and next_cursor. Automatically spills large outputs to file with spill_uri.",
+    description: "Execute an allow-listed command within the sandbox (git project root). Optional cwd must be RELATIVE to the sandbox root. Supports pagination via limit_bytes and next_cursor (page and cursor are required for pagination). Automatically spills large outputs to file with spill_uri.",
     inputSchema: {
       type: "object",
       properties: {
@@ -649,7 +661,7 @@ export const tools: Tool[] = [
         max_output_bytes: { type: "number", minimum: 1000, maximum: 10000000, description: "Maximum output size in bytes (1000-10M, will be clamped to policy limits)" },
         page: {
           type: "object",
-          description: "Pagination configuration for handling large command outputs. Enables reading output in chunks to avoid memory issues and improve performance when dealing with large files or long-running commands.",
+          description: "Pagination configuration for handling large command outputs. Enables reading output in chunks to avoid memory issues and improve performance when dealing with large files or long-running commands. Both 'page' and 'cursor' are required for pagination.",
           properties: {
             cursor: {
               type: "object",
@@ -771,6 +783,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const pagination: PaginationConfig | undefined = input.page;
     const onLargeOutput: LargeOutputBehavior = input.on_large_output || "spill";
 
+    // Validate cursor format if provided
+    if (pagination?.cursor) {
+      try {
+        parseCursor(pagination.cursor);
+      } catch (error: any) {
+        return {
+          content: [{ type: "text", text: `Error: Invalid cursor format in pagination config: ${error.message}` }],
+          isError: true,
+        };
+      }
+    }
+
     const res = await execWithPagination(
       input.cmd,
       input.args || [],
@@ -863,8 +887,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (name === "read_file_chunk") {
     const input = args as any;
     const uri = input.uri;
-    const cursor = input.cursor || { cursor_type: "bytes", offset: 0 };
     const limitBytes = input.limit_bytes || 65536;
+
+    // Validate cursor format
+    try {
+      const cursor = input.cursor || { cursor_type: "bytes", offset: 0 };
+      parseCursor(cursor); // This will throw if format is invalid
+    } catch (error: any) {
+      return {
+        content: [{ type: "text", text: `Error: Invalid cursor format: ${error.message}` }],
+        isError: true,
+      };
+    }
+
+    const cursor = input.cursor || { cursor_type: "bytes", offset: 0 };
 
     // Extract file path from URI
     if (!uri.startsWith("mcp://tmp/")) {
