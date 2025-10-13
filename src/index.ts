@@ -55,11 +55,13 @@ export type Policy = {
   envWhitelist: string[]; // which env vars to forward
 };
 
+export type CursorConfig = {
+  cursor_type: string;    // type of cursor positioning (currently only "bytes" supported)
+  offset: number;         // byte offset from start of output stream (must be ≥ 0)
+};
+
 export type PaginationConfig = {
-  cursor?: {              // position marker object for pagination
-    cursor_type: string;  // type of cursor positioning (currently "bytes")
-    offset: number;       // byte offset from start of output stream
-  };
+  cursor?: CursorConfig;  // position marker object for pagination (required when using pagination)
   limit_bytes?: number;   // default: 64 KB
   limit_lines?: number;   // optional: stops on whichever hits first
 };
@@ -207,24 +209,41 @@ export function filteredEnv(testPolicy?: Policy): NodeJS.ProcessEnv {
 
 /** ---------- Pagination Helpers ---------- */
 
-function parseCursor(cursor: any): { type: string; offset: number } {
+function parseCursor(cursor: CursorConfig | undefined | null): { type: string; offset: number } {
   // Handle object format only (no legacy string support)
   if (!cursor || typeof cursor !== 'object') {
     throw new Error(`Invalid cursor format: expected object, got ${typeof cursor}. Cursor must be an object with 'cursor_type' and 'offset' properties.`);
   }
 
+  // TypeScript should ensure this is a CursorConfig at this point, but let's be safe
+  const cursorConfig = cursor as CursorConfig;
+
   if (!cursor.cursor_type || typeof cursor.cursor_type !== 'string') {
     throw new Error(`Invalid cursor format: missing or invalid 'cursor_type' property. Expected string, got ${typeof cursor.cursor_type}.`);
   }
 
-  const offset = cursor.offset;
-  if (offset !== undefined && (typeof offset !== 'number' || isNaN(offset) || offset < 0)) {
-    throw new Error(`Invalid cursor format: 'offset' must be a non-negative number, got ${offset}.`);
+  // Validate cursor_type is supported
+  if (cursor.cursor_type !== 'bytes') {
+    throw new Error(`Invalid cursor format: unsupported cursor_type '${cursor.cursor_type}'. Currently only 'bytes' is supported.`);
+  }
+
+  // Coerce and validate offset
+  let offset: number;
+  if (cursor.offset === undefined || cursor.offset === null) {
+    offset = 0;
+  } else {
+    offset = Number(cursor.offset);
+    if (!Number.isFinite(offset)) {
+      throw new Error(`Invalid cursor format: 'offset' must be a finite number, got ${cursor.offset}.`);
+    }
+    if (offset < 0) {
+      throw new Error(`Invalid cursor format: 'offset' must be non-negative, got ${offset}.`);
+    }
   }
 
   return {
-    type: cursor.cursor_type,
-    offset: offset || 0
+    type: cursorConfig.cursor_type,
+    offset: offset
   };
 }
 
