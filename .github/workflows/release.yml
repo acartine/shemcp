@@ -69,18 +69,40 @@ jobs:
 
           # A package was published if either:
           # 1. changesets says it published (direct push with changesets)
-          # 2. We just merged a Release PR and the versions now match
+          # 2. We just merged a Release PR and the versions now match (with registry polling to avoid propagation delays)
           if [ "${{ steps.changesets.outputs.published }}" == "true" ]; then
             echo "Changesets reports packages were published"
             echo "published=true" >> $GITHUB_OUTPUT
             echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-          elif [[ "$LAST_COMMIT_MSG" == "chore: release packages"* ]] && [ "$CURRENT_VERSION" == "$NPM_VERSION" ]; then
-            echo "Release PR was merged and package is now published"
-            echo "published=true" >> $GITHUB_OUTPUT
-            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
           else
-            echo "No package publish detected"
-            echo "published=false" >> $GITHUB_OUTPUT
+            MATCHING_VERSION=""
+            MAX_ATTEMPTS=6
+            SLEEP_SECONDS=15
+
+            if [[ "$LAST_COMMIT_MSG" == "chore: release packages"* ]] || [[ "$LAST_COMMIT_MSG" == "Release: Update versions and publish to npm"* ]]; then
+              echo "Release commit detected, polling npm to confirm version sync..."
+              for attempt in $(seq 1 $MAX_ATTEMPTS); do
+                NPM_VERSION=$(npm view shemcp version 2>/dev/null || echo "0.0.0")
+                echo "Attempt $attempt/$MAX_ATTEMPTS: npm reports version $NPM_VERSION"
+                if [ "$NPM_VERSION" == "$CURRENT_VERSION" ] && [ "$NPM_VERSION" != "0.0.0" ]; then
+                  MATCHING_VERSION="$NPM_VERSION"
+                  break
+                fi
+                if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+                  echo "npm not updated yet, waiting $SLEEP_SECONDS seconds before retrying..."
+                  sleep $SLEEP_SECONDS
+                fi
+              done
+            fi
+
+            if [ -n "$MATCHING_VERSION" ]; then
+              echo "npm now reports version $MATCHING_VERSION, treating release as published"
+              echo "published=true" >> $GITHUB_OUTPUT
+              echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            else
+              echo "No package publish detected"
+              echo "published=false" >> $GITHUB_OUTPUT
+            fi
           fi
 
 
