@@ -195,13 +195,14 @@ export function buildCmdLine(cmd: string, args: string[]): string {
 /**
  * Parse a bash wrapper command and extract the underlying command for allowlist checking
  * Handles: bash -lc "cmd args", bash -c "cmd args", bash -l -c "cmd args"
- * Returns: { isWrapper: boolean, executableToCheck: string, shouldUseLogin: boolean, commandString?: string }
+ * Returns: { isWrapper: boolean, executableToCheck: string, shouldUseLogin: boolean, commandString?: string, argsAfterCommand?: number }
  */
 export function parseBashWrapper(cmd: string, args: string[]): {
   isWrapper: boolean;
   executableToCheck: string;
   shouldUseLogin: boolean;
   commandString?: string;
+  argsAfterCommand?: number;
 } {
   // Not a wrapper if cmd is not bash or no dash flags
   if (cmd !== "bash" || args.length === 0) {
@@ -216,6 +217,7 @@ export function parseBashWrapper(cmd: string, args: string[]): {
   // Parse flags to find -c and -l
   let login = false;
   let cmdStr: string | undefined;
+  let cmdStrIndex = -1;
   let i = 0;
 
   while (i < args.length) {
@@ -238,7 +240,8 @@ export function parseBashWrapper(cmd: string, args: string[]): {
         if (i + 1 >= args.length) {
           throw new Error("missing command string after -c");
         }
-        cmdStr = args[i + 1];
+        cmdStrIndex = i + 1;
+        cmdStr = args[cmdStrIndex];
         // Allow empty strings to pass through here - they'll be caught by the tokenizer below
         break;
       }
@@ -270,7 +273,8 @@ export function parseBashWrapper(cmd: string, args: string[]): {
     isWrapper: true,
     executableToCheck: firstExec,
     shouldUseLogin: login,
-    commandString: cmdStr
+    commandString: cmdStr,
+    argsAfterCommand: cmdStrIndex + 1  // Index after the command string for trailing args
   };
 }
 
@@ -982,6 +986,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       execArgs = ["-o", "pipefail", "-o", "errexit", "-c", wrapperInfo.commandString!];
       if (wrapperInfo.shouldUseLogin) {
         execArgs.unshift("-l");
+      }
+      // Append any trailing arguments after the command string (for $0, $1, etc.)
+      // e.g., bash -c 'echo "$1"' -- foo  -> trailing args are ["--", "foo"]
+      if (wrapperInfo.argsAfterCommand !== undefined && wrapperInfo.argsAfterCommand < input.args.length) {
+        const trailingArgs = input.args.slice(wrapperInfo.argsAfterCommand);
+        execArgs.push(...trailingArgs);
       }
     } else {
       // Direct execution (no wrapper)

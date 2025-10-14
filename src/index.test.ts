@@ -364,5 +364,27 @@ describe('MCP Shell Server', () => {
         expect(allowedCommand(fullCmd, testPolicy)).toBe(true);
       });
     });
+
+    describe('Positional parameters handling', () => {
+      it('should track the index after command string for trailing args', () => {
+        const result = parseBashWrapper("bash", ["-c", "echo $1", "--", "foo", "bar"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.commandString).toBe("echo $1");
+        expect(result.argsAfterCommand).toBe(2);  // Index of "--" in the args array
+      });
+
+      it('should handle -lc with trailing args', () => {
+        const result = parseBashWrapper("bash", ["-lc", "echo $1", "--", "foo"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.shouldUseLogin).toBe(true);
+        expect(result.argsAfterCommand).toBe(2);  // Index of "--"
+      });
+
+      it('should handle commands without trailing args', () => {
+        const result = parseBashWrapper("bash", ["-c", "echo hello"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.argsAfterCommand).toBe(2);  // Would be past the end of array
+      });
+    });
   });
 });
