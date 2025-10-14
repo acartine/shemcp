@@ -933,11 +933,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
     }
 
-    // Check allowlist against the underlying executable (not the wrapper)
-    const full = buildCmdLine(wrapperInfo.executableToCheck, []);
-    if (!allowedCommand(full)) {
+    // Check allowlist against the full underlying command (not just the executable)
+    // For wrappers, reconstruct the full command from the parsed tokens
+    // For non-wrappers, use the original cmd and args
+    let fullCommandForPolicy: string;
+    if (wrapperInfo.isWrapper) {
+      // Use the tokenized command string to rebuild the full command for policy checking
+      const tokens = parseShellCommand(wrapperInfo.commandString!);
+      fullCommandForPolicy = tokens.join(" ");
+    } else {
+      // Direct command - use original cmd and args
+      fullCommandForPolicy = buildCmdLine(input.cmd, input.args || []);
+    }
+
+    if (!allowedCommand(fullCommandForPolicy)) {
       return {
-        content: [{ type: "text", text: `Denied by policy: ${full}` }],
+        content: [{ type: "text", text: `Denied by policy: ${fullCommandForPolicy}` }],
         isError: true,
       };
     }

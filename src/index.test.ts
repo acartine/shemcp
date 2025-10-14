@@ -336,5 +336,33 @@ describe('MCP Shell Server', () => {
         expect(result.executableToCheck).toBe("git");
       });
     });
+
+    describe('Full command policy checking', () => {
+      it('should check full command including args for deny rules', () => {
+        // This test ensures that deny rules like "git push origin main" work
+        // even when wrapped in bash -lc
+        const wrapperResult = parseBashWrapper("bash", ["-lc", "git push origin main"]);
+        expect(wrapperResult.isWrapper).toBe(true);
+
+        // The full command should include all args for policy checking
+        const tokens = parseShellCommand(wrapperResult.commandString!);
+        const fullCmd = tokens.join(" ");
+
+        // Should include all parts of the command
+        expect(fullCmd).toBe("git push origin main");
+
+        // This should be denied by policy
+        expect(allowedCommand(fullCmd, testPolicy)).toBe(false);
+      });
+
+      it('should allow non-main branch pushes even in wrappers', () => {
+        const wrapperResult = parseBashWrapper("bash", ["-c", "git push origin feature-branch"]);
+        const tokens = parseShellCommand(wrapperResult.commandString!);
+        const fullCmd = tokens.join(" ");
+
+        // Should be allowed (not pushing to main/master)
+        expect(allowedCommand(fullCmd, testPolicy)).toBe(true);
+      });
+    });
   });
 });
