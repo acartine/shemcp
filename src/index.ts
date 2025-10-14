@@ -241,6 +241,12 @@ export function parseBashWrapper(cmd: string, args: string[]): {
 
       // Check for -c flag (combined like -lc or separate -c)
       if (arg.includes("c") && !arg.startsWith("--")) {
+        // For combined flags like -ec, -lc, -xlc, extract non-c/non-l flags BEFORE breaking
+        const otherFlags = arg.slice(1).split('').filter(f => f !== 'c' && f !== 'l').join('');
+        if (otherFlags.length > 0) {
+          flagsBeforeCommand.push('-' + otherFlags);
+        }
+
         // Next arg should be the command string
         if (i + 1 >= args.length) {
           throw new Error("missing command string after -c");
@@ -252,13 +258,12 @@ export function parseBashWrapper(cmd: string, args: string[]): {
       }
 
       // Collect flags that aren't the wrapper's -l or -c (these should be preserved)
-      // Skip combined flags that contain 'c' or standalone '-l' as we handle those specially
-      const isCombinedWithC = arg.includes("c") && !arg.startsWith("--");
       const isStandaloneL = arg === "-l";
-      if (!isCombinedWithC && !isStandaloneL) {
+
+      if (!isStandaloneL) {
+        // Regular flag (not combined with c, not standalone -l)
         flagsBeforeCommand.push(arg);
         // If this is a flag that takes a value (like -o), preserve the next arg too
-        // Check if next arg exists and doesn't start with '-' (it's a value, not a flag)
         const nextArg = args[i + 1];
         if (i + 1 < args.length && nextArg && !nextArg.startsWith("-")) {
           flagsBeforeCommand.push(nextArg);
