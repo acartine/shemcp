@@ -192,6 +192,173 @@ export function buildCmdLine(cmd: string, args: string[]): string {
   return joined;
 }
 
+/**
+ * Parse a bash wrapper command and extract the underlying command for allowlist checking
+ * Handles: bash -lc "cmd args", bash -c "cmd args", bash -l -c "cmd args"
+ * Returns: { isWrapper: boolean, executableToCheck: string, shouldUseLogin: boolean, commandString?: string, argsAfterCommand?: number, flagsBeforeCommand?: string[] }
+ */
+export function parseBashWrapper(cmd: string, args: string[]): {
+  isWrapper: boolean;
+  executableToCheck: string;
+  shouldUseLogin: boolean;
+  commandString?: string;
+  argsAfterCommand?: number;
+  flagsBeforeCommand?: string[];
+} {
+  // Not a wrapper if cmd is not bash or no dash flags
+  if (cmd !== "bash" || args.length === 0) {
+    return { isWrapper: false, executableToCheck: cmd, shouldUseLogin: false };
+  }
+
+  const firstArg = args[0];
+  if (!firstArg || !firstArg.startsWith("-")) {
+    return { isWrapper: false, executableToCheck: cmd, shouldUseLogin: false };
+  }
+
+  // Parse flags to find -c and -l, and track pre-command flags
+  let login = false;
+  let cmdStr: string | undefined;
+  let cmdStrIndex = -1;
+  let flagsBeforeCommand: string[] = [];
+  let i = 0;
+
+  while (i < args.length) {
+    const arg = args[i];
+
+    if (!arg) {
+      i++;
+      continue;
+    }
+
+    if (arg.startsWith("-")) {
+      // Check for -l flag (only in short form like -l, -lc, -cl, not --noprofile)
+      if (arg.startsWith("-") && !arg.startsWith("--")) {
+        // Short flags like -l, -lc, -cl
+        if (arg.includes("l")) {
+          login = true;
+        }
+      }
+
+      // Check for -c flag (combined like -lc or separate -c)
+      if (arg.includes("c") && !arg.startsWith("--")) {
+        // For combined flags like -ec, -lc, -xlc, extract non-c/non-l flags BEFORE breaking
+        // Split them into individual flags (e.g., -xe becomes ['-x', '-e'])
+        const otherFlagsArray = arg.slice(1).split('').filter(f => f !== 'c' && f !== 'l');
+        for (const flag of otherFlagsArray) {
+          flagsBeforeCommand.push('-' + flag);
+        }
+
+        // Next arg should be the command string
+        if (i + 1 >= args.length) {
+          throw new Error("missing command string after -c");
+        }
+        cmdStrIndex = i + 1;
+        cmdStr = args[cmdStrIndex];
+        // Allow empty strings to pass through here - they'll be caught by the tokenizer below
+        break;
+      }
+
+      // Collect flags that aren't the wrapper's -l or -c (these should be preserved)
+      const isStandaloneL = arg === "-l";
+
+      if (!isStandaloneL) {
+        // Regular flag (not combined with c, not standalone -l)
+        flagsBeforeCommand.push(arg);
+        // If this is a flag that takes a value (like -o), preserve the next arg too
+        const nextArg = args[i + 1];
+        if (i + 1 < args.length && nextArg && !nextArg.startsWith("-")) {
+          flagsBeforeCommand.push(nextArg);
+          i++;  // Skip the value in next iteration
+        }
+      }
+
+      i++;
+    } else {
+      // Non-flag argument before -c (shouldn't happen in normal bash usage, but skip it)
+      i++;
+    }
+  }
+
+  // Require -c flag with command string (check for undefined/null, not empty string)
+  if (cmdStr === undefined || cmdStr === null) {
+    throw new Error("missing -c command string");
+  }
+
+  // Parse the command string to extract the first executable
+  // Use a simple tokenizer that respects quotes
+  const tokens = parseShellCommand(cmdStr);
+  if (tokens.length === 0) {
+    throw new Error("empty command string");
+  }
+
+  const firstExec = tokens[0];
+  if (!firstExec) {
+    throw new Error("empty command string");
+  }
+
+  return {
+    isWrapper: true,
+    executableToCheck: firstExec,
+    shouldUseLogin: login,
+    commandString: cmdStr,
+    argsAfterCommand: cmdStrIndex + 1,  // Index after the command string for trailing args
+    flagsBeforeCommand  // User-supplied flags like --noprofile, --norc, etc.
+  };
+}
+
+/**
+ * Simple shell command parser that tokenizes a command string
+ * Handles basic quoting (single and double quotes) similar to shlex.split()
+ */
+export function parseShellCommand(cmdStr: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let escaped = false;
+
+  for (let i = 0; i < cmdStr.length; i++) {
+    const char = cmdStr[i];
+
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (char === "'" && !inDoubleQuote) {
+      inSingleQuote = !inSingleQuote;
+      continue;
+    }
+
+    if (char === '"' && !inSingleQuote) {
+      inDoubleQuote = !inDoubleQuote;
+      continue;
+    }
+
+    if (char === " " && !inSingleQuote && !inDoubleQuote) {
+      if (current.length > 0) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current.length > 0) {
+    tokens.push(current);
+  }
+
+  return tokens;
+}
+
 export function allowedCommand(full: string, testPolicy?: Policy): boolean {
   const currentPolicy = testPolicy || policy;
   if (currentPolicy.deny.some(rx => rx.test(full))) return false;
@@ -787,10 +954,33 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const resolvedCwd = resolve(policy.rootDirectory, input.cwd || ".");
     ensureCwd(resolvedCwd);
 
-    const full = buildCmdLine(input.cmd, input.args || []);
-    if (!allowedCommand(full)) {
+    // Parse bash wrapper to extract underlying command for allowlist checking
+    let wrapperInfo: ReturnType<typeof parseBashWrapper>;
+    try {
+      wrapperInfo = parseBashWrapper(input.cmd, input.args || []);
+    } catch (error: any) {
       return {
-        content: [{ type: "text", text: `Denied by policy: ${full}` }],
+        content: [{ type: "text", text: `Error: ${error.message}` }],
+        isError: true,
+      };
+    }
+
+    // Check allowlist against the full underlying command (not just the executable)
+    // For wrappers, reconstruct the full command from the parsed tokens
+    // For non-wrappers, use the original cmd and args
+    let fullCommandForPolicy: string;
+    if (wrapperInfo.isWrapper) {
+      // Use the tokenized command string to rebuild the full command for policy checking
+      const tokens = parseShellCommand(wrapperInfo.commandString!);
+      fullCommandForPolicy = tokens.join(" ");
+    } else {
+      // Direct command - use original cmd and args
+      fullCommandForPolicy = buildCmdLine(input.cmd, input.args || []);
+    }
+
+    if (!allowedCommand(fullCommandForPolicy)) {
+      return {
+        content: [{ type: "text", text: `Denied by policy: ${fullCommandForPolicy}` }],
         isError: true,
       };
     }
@@ -814,9 +1004,40 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
     }
 
+    // Determine the actual command and args to execute
+    let execCmd: string;
+    let execArgs: string[];
+
+    if (wrapperInfo.isWrapper) {
+      // Execute via bash with proper flags
+      execCmd = "/bin/bash";
+
+      // Start with user-supplied flags (like --noprofile, --norc, etc.)
+      execArgs = [...(wrapperInfo.flagsBeforeCommand || [])];
+
+      // Add login flag if needed
+      if (wrapperInfo.shouldUseLogin) {
+        execArgs.push("-l");
+      }
+
+      // Add our execution flags and command
+      execArgs.push("-o", "pipefail", "-o", "errexit", "-c", wrapperInfo.commandString!);
+
+      // Append any trailing arguments after the command string (for $0, $1, etc.)
+      // e.g., bash -c 'echo "$1"' -- foo  -> trailing args are ["--", "foo"]
+      if (wrapperInfo.argsAfterCommand !== undefined && wrapperInfo.argsAfterCommand < input.args.length) {
+        const trailingArgs = input.args.slice(wrapperInfo.argsAfterCommand);
+        execArgs.push(...trailingArgs);
+      }
+    } else {
+      // Direct execution (no wrapper)
+      execCmd = input.cmd;
+      execArgs = input.args || [];
+    }
+
     const res = await execWithPagination(
-      input.cmd,
-      input.args || [],
+      execCmd,
+      execArgs,
       resolvedCwd,
       effectiveTimeoutMs,
       effectiveMaxBytes,
@@ -845,6 +1066,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       line_count: res.lineCount,
       stderr_count: res.stderrCount,
       cmdline: [input.cmd, ...(input.args || [])],
+      effective_cmdline: [execCmd, ...execArgs],
       cwd: resolvedCwd,
       limits: {
         timeout_ms: effectiveTimeoutMs,

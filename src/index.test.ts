@@ -11,7 +11,9 @@ import {
   server,
   createPolicyFromConfig,
   setConfigForTesting,
-  getEffectiveLimits
+  getEffectiveLimits,
+  parseBashWrapper,
+  parseShellCommand
 } from './index.js';
 import { DEFAULT_CONFIG } from './config/schema.js';
 import type { Policy } from './index.js';
@@ -245,6 +247,240 @@ describe('MCP Shell Server', () => {
       expect(convertedPolicy.timeoutMs).toBe(testConfig.limits.timeout_seconds * 1000);
       expect(convertedPolicy.maxBytes).toBe(testConfig.limits.max_output_bytes);
       expect(convertedPolicy.envWhitelist).toEqual(testConfig.environment.whitelist);
+    });
+  });
+
+  describe('Bash Wrapper Handling', () => {
+    describe('parseShellCommand', () => {
+      it('should parse simple commands', () => {
+        expect(parseShellCommand("git status")).toEqual(["git", "status"]);
+        expect(parseShellCommand("aws s3 ls")).toEqual(["aws", "s3", "ls"]);
+      });
+
+      it('should handle single quotes', () => {
+        expect(parseShellCommand("echo 'hello world'")).toEqual(["echo", "hello world"]);
+        expect(parseShellCommand("git commit -m 'my message'")).toEqual(["git", "commit", "-m", "my message"]);
+      });
+
+      it('should handle double quotes', () => {
+        expect(parseShellCommand('echo "hello world"')).toEqual(["echo", "hello world"]);
+        expect(parseShellCommand('git commit -m "my message"')).toEqual(["git", "commit", "-m", "my message"]);
+      });
+
+      it('should handle escaped characters', () => {
+        expect(parseShellCommand("echo hello\\ world")).toEqual(["echo", "hello world"]);
+      });
+
+      it('should handle empty strings', () => {
+        expect(parseShellCommand("")).toEqual([]);
+        expect(parseShellCommand("   ")).toEqual([]);
+      });
+    });
+
+    describe('parseBashWrapper', () => {
+      it('should detect non-wrapper commands', () => {
+        const result = parseBashWrapper("git", ["status"]);
+        expect(result.isWrapper).toBe(false);
+        expect(result.executableToCheck).toBe("git");
+        expect(result.shouldUseLogin).toBe(false);
+      });
+
+      it('should parse bash -lc wrapper', () => {
+        const result = parseBashWrapper("bash", ["-lc", "aws s3 ls"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.executableToCheck).toBe("aws");
+        expect(result.shouldUseLogin).toBe(true);
+        expect(result.commandString).toBe("aws s3 ls");
+      });
+
+      it('should parse bash -c wrapper (non-login)', () => {
+        const result = parseBashWrapper("bash", ["-c", "git status"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.executableToCheck).toBe("git");
+        expect(result.shouldUseLogin).toBe(false);
+        expect(result.commandString).toBe("git status");
+      });
+
+      it('should parse bash -l -c wrapper (separate flags)', () => {
+        const result = parseBashWrapper("bash", ["-l", "-c", "kubectl get pods"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.executableToCheck).toBe("kubectl");
+        expect(result.shouldUseLogin).toBe(true);
+        expect(result.commandString).toBe("kubectl get pods");
+      });
+
+      it('should reject bash -l without -c', () => {
+        expect(() => parseBashWrapper("bash", ["-l"])).toThrow("missing -c command string");
+      });
+
+      it('should reject bash -c without command string', () => {
+        expect(() => parseBashWrapper("bash", ["-c"])).toThrow("missing command string after -c");
+      });
+
+      it('should reject empty or whitespace-only command string', () => {
+        // Empty strings and whitespace-only strings should be rejected
+        // The error thrown depends on how bash processes them:
+        // - Empty string ("") gets caught by the tokenizer returning empty array
+        // - Whitespace-only ("   ") also gets caught by tokenizer
+        expect(() => parseBashWrapper("bash", ["-lc", ""])).toThrow("empty command string");
+        expect(() => parseBashWrapper("bash", ["-lc", "   "])).toThrow("empty command string");
+      });
+
+      it('should extract first executable from complex commands', () => {
+        const result = parseBashWrapper("bash", ["-lc", "aws s3 sync . s3://bucket"]);
+        expect(result.executableToCheck).toBe("aws");
+      });
+
+      it('should handle commands with quotes', () => {
+        const result = parseBashWrapper("bash", ["-c", 'git commit -m "my message"']);
+        expect(result.executableToCheck).toBe("git");
+      });
+    });
+
+    describe('Full command policy checking', () => {
+      it('should check full command including args for deny rules', () => {
+        // This test ensures that deny rules like "git push origin main" work
+        // even when wrapped in bash -lc
+        const wrapperResult = parseBashWrapper("bash", ["-lc", "git push origin main"]);
+        expect(wrapperResult.isWrapper).toBe(true);
+
+        // The full command should include all args for policy checking
+        const tokens = parseShellCommand(wrapperResult.commandString!);
+        const fullCmd = tokens.join(" ");
+
+        // Should include all parts of the command
+        expect(fullCmd).toBe("git push origin main");
+
+        // This should be denied by policy
+        expect(allowedCommand(fullCmd, testPolicy)).toBe(false);
+      });
+
+      it('should allow non-main branch pushes even in wrappers', () => {
+        const wrapperResult = parseBashWrapper("bash", ["-c", "git push origin feature-branch"]);
+        const tokens = parseShellCommand(wrapperResult.commandString!);
+        const fullCmd = tokens.join(" ");
+
+        // Should be allowed (not pushing to main/master)
+        expect(allowedCommand(fullCmd, testPolicy)).toBe(true);
+      });
+    });
+
+    describe('Positional parameters handling', () => {
+      it('should track the index after command string for trailing args', () => {
+        const result = parseBashWrapper("bash", ["-c", "echo $1", "--", "foo", "bar"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.commandString).toBe("echo $1");
+        expect(result.argsAfterCommand).toBe(2);  // Index of "--" in the args array
+      });
+
+      it('should handle -lc with trailing args', () => {
+        const result = parseBashWrapper("bash", ["-lc", "echo $1", "--", "foo"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.shouldUseLogin).toBe(true);
+        expect(result.argsAfterCommand).toBe(2);  // Index of "--"
+      });
+
+      it('should handle commands without trailing args', () => {
+        const result = parseBashWrapper("bash", ["-c", "echo hello"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.argsAfterCommand).toBe(2);  // Would be past the end of array
+      });
+    });
+
+    describe('Long flag handling', () => {
+      it('should not treat long flags with "l" as login shell', () => {
+        // --noprofile contains 'l' but should NOT trigger login mode
+        const result = parseBashWrapper("bash", ["--noprofile", "-c", "echo hi"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.shouldUseLogin).toBe(false);  // Should NOT be login
+      });
+
+      it('should not treat long flags with "c" as command flag', () => {
+        // This should fail because there's no actual -c flag
+        expect(() => parseBashWrapper("bash", ["--norc", "echo hi"])).toThrow("missing -c command string");
+      });
+
+      it('should only detect short -l flag', () => {
+        const result = parseBashWrapper("bash", ["-l", "-c", "echo hi"]);
+        expect(result.shouldUseLogin).toBe(true);
+      });
+
+      it('should detect -l in combined short flags', () => {
+        const result = parseBashWrapper("bash", ["-lc", "echo hi"]);
+        expect(result.shouldUseLogin).toBe(true);
+      });
+    });
+
+    describe('Pre-command flags preservation', () => {
+      it('should preserve --noprofile flag', () => {
+        const result = parseBashWrapper("bash", ["--noprofile", "-c", "echo hi"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.flagsBeforeCommand).toEqual(["--noprofile"]);
+      });
+
+      it('should preserve multiple flags', () => {
+        const result = parseBashWrapper("bash", ["--noprofile", "--norc", "-c", "echo hi"]);
+        expect(result.flagsBeforeCommand).toEqual(["--noprofile", "--norc"]);
+      });
+
+      it('should preserve -o posix style flags', () => {
+        const result = parseBashWrapper("bash", ["-o", "posix", "-c", "echo hi"]);
+        expect(result.flagsBeforeCommand).toEqual(["-o", "posix"]);
+      });
+
+      it('should not include -l in flagsBeforeCommand', () => {
+        const result = parseBashWrapper("bash", ["-l", "-c", "echo hi"]);
+        expect(result.shouldUseLogin).toBe(true);
+        expect(result.flagsBeforeCommand).toEqual([]);  // -l handled separately
+      });
+
+      it('should not include -lc combined flag in flagsBeforeCommand', () => {
+        const result = parseBashWrapper("bash", ["-lc", "echo hi"]);
+        expect(result.shouldUseLogin).toBe(true);
+        expect(result.flagsBeforeCommand).toEqual([]);  // -lc handled specially
+      });
+
+      it('should preserve flags before combined -lc', () => {
+        const result = parseBashWrapper("bash", ["--noprofile", "-lc", "echo hi"]);
+        expect(result.flagsBeforeCommand).toEqual(["--noprofile"]);
+        expect(result.shouldUseLogin).toBe(true);
+      });
+    });
+
+    describe('Combined short flags with c', () => {
+      it('should extract other flags from -ec bundle', () => {
+        const result = parseBashWrapper("bash", ["-ec", "echo hi"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.flagsBeforeCommand).toEqual(["-e"]);  // -e preserved, -c handled
+      });
+
+      it('should extract other flags from -xlc bundle', () => {
+        const result = parseBashWrapper("bash", ["-xlc", "echo hi"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.shouldUseLogin).toBe(true);  // -l detected
+        expect(result.flagsBeforeCommand).toEqual(["-x"]);  // -x preserved, -l and -c handled
+      });
+
+      it('should handle -pc bundle', () => {
+        const result = parseBashWrapper("bash", ["-pc", "echo hi"]);
+        expect(result.flagsBeforeCommand).toEqual(["-p"]);  // -p preserved
+      });
+
+      it('should handle -xec bundle', () => {
+        const result = parseBashWrapper("bash", ["-xec", "echo hi"]);
+        expect(result.flagsBeforeCommand).toEqual(["-x", "-e"]);  // both -x and -e preserved as separate flags
+      });
+
+      it('should handle pure -lc with no other flags', () => {
+        const result = parseBashWrapper("bash", ["-lc", "echo hi"]);
+        expect(result.shouldUseLogin).toBe(true);
+        expect(result.flagsBeforeCommand).toEqual([]);  // Nothing extra to preserve
+      });
+
+      it('should handle pure -c with no other flags', () => {
+        const result = parseBashWrapper("bash", ["-c", "echo hi"]);
+        expect(result.flagsBeforeCommand).toEqual([]);  // Nothing to preserve
+      });
     });
   });
 });
