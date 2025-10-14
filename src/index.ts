@@ -195,7 +195,7 @@ export function buildCmdLine(cmd: string, args: string[]): string {
 /**
  * Parse a bash wrapper command and extract the underlying command for allowlist checking
  * Handles: bash -lc "cmd args", bash -c "cmd args", bash -l -c "cmd args"
- * Returns: { isWrapper: boolean, executableToCheck: string, shouldUseLogin: boolean, commandString?: string, argsAfterCommand?: number }
+ * Returns: { isWrapper: boolean, executableToCheck: string, shouldUseLogin: boolean, commandString?: string, argsAfterCommand?: number, flagsBeforeCommand?: string[] }
  */
 export function parseBashWrapper(cmd: string, args: string[]): {
   isWrapper: boolean;
@@ -203,6 +203,7 @@ export function parseBashWrapper(cmd: string, args: string[]): {
   shouldUseLogin: boolean;
   commandString?: string;
   argsAfterCommand?: number;
+  flagsBeforeCommand?: string[];
 } {
   // Not a wrapper if cmd is not bash or no dash flags
   if (cmd !== "bash" || args.length === 0) {
@@ -214,10 +215,11 @@ export function parseBashWrapper(cmd: string, args: string[]): {
     return { isWrapper: false, executableToCheck: cmd, shouldUseLogin: false };
   }
 
-  // Parse flags to find -c and -l
+  // Parse flags to find -c and -l, and track pre-command flags
   let login = false;
   let cmdStr: string | undefined;
   let cmdStrIndex = -1;
+  let flagsBeforeCommand: string[] = [];
   let i = 0;
 
   while (i < args.length) {
@@ -249,8 +251,24 @@ export function parseBashWrapper(cmd: string, args: string[]): {
         break;
       }
 
+      // Collect flags that aren't the wrapper's -l or -c (these should be preserved)
+      // Skip combined flags that contain 'c' or standalone '-l' as we handle those specially
+      const isCombinedWithC = arg.includes("c") && !arg.startsWith("--");
+      const isStandaloneL = arg === "-l";
+      if (!isCombinedWithC && !isStandaloneL) {
+        flagsBeforeCommand.push(arg);
+        // If this is a flag that takes a value (like -o), preserve the next arg too
+        // Check if next arg exists and doesn't start with '-' (it's a value, not a flag)
+        const nextArg = args[i + 1];
+        if (i + 1 < args.length && nextArg && !nextArg.startsWith("-")) {
+          flagsBeforeCommand.push(nextArg);
+          i++;  // Skip the value in next iteration
+        }
+      }
+
       i++;
     } else {
+      // Non-flag argument before -c (shouldn't happen in normal bash usage, but skip it)
       i++;
     }
   }
@@ -277,7 +295,8 @@ export function parseBashWrapper(cmd: string, args: string[]): {
     executableToCheck: firstExec,
     shouldUseLogin: login,
     commandString: cmdStr,
-    argsAfterCommand: cmdStrIndex + 1  // Index after the command string for trailing args
+    argsAfterCommand: cmdStrIndex + 1,  // Index after the command string for trailing args
+    flagsBeforeCommand  // User-supplied flags like --noprofile, --norc, etc.
   };
 }
 
@@ -986,10 +1005,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (wrapperInfo.isWrapper) {
       // Execute via bash with proper flags
       execCmd = "/bin/bash";
-      execArgs = ["-o", "pipefail", "-o", "errexit", "-c", wrapperInfo.commandString!];
+
+      // Start with user-supplied flags (like --noprofile, --norc, etc.)
+      execArgs = [...(wrapperInfo.flagsBeforeCommand || [])];
+
+      // Add login flag if needed
       if (wrapperInfo.shouldUseLogin) {
-        execArgs.unshift("-l");
+        execArgs.push("-l");
       }
+
+      // Add our execution flags and command
+      execArgs.push("-o", "pipefail", "-o", "errexit", "-c", wrapperInfo.commandString!);
+
       // Append any trailing arguments after the command string (for $0, $1, etc.)
       // e.g., bash -c 'echo "$1"' -- foo  -> trailing args are ["--", "foo"]
       if (wrapperInfo.argsAfterCommand !== undefined && wrapperInfo.argsAfterCommand < input.args.length) {

@@ -410,5 +410,41 @@ describe('MCP Shell Server', () => {
         expect(result.shouldUseLogin).toBe(true);
       });
     });
+
+    describe('Pre-command flags preservation', () => {
+      it('should preserve --noprofile flag', () => {
+        const result = parseBashWrapper("bash", ["--noprofile", "-c", "echo hi"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.flagsBeforeCommand).toEqual(["--noprofile"]);
+      });
+
+      it('should preserve multiple flags', () => {
+        const result = parseBashWrapper("bash", ["--noprofile", "--norc", "-c", "echo hi"]);
+        expect(result.flagsBeforeCommand).toEqual(["--noprofile", "--norc"]);
+      });
+
+      it('should preserve -o posix style flags', () => {
+        const result = parseBashWrapper("bash", ["-o", "posix", "-c", "echo hi"]);
+        expect(result.flagsBeforeCommand).toEqual(["-o", "posix"]);
+      });
+
+      it('should not include -l in flagsBeforeCommand', () => {
+        const result = parseBashWrapper("bash", ["-l", "-c", "echo hi"]);
+        expect(result.shouldUseLogin).toBe(true);
+        expect(result.flagsBeforeCommand).toEqual([]);  // -l handled separately
+      });
+
+      it('should not include -lc combined flag in flagsBeforeCommand', () => {
+        const result = parseBashWrapper("bash", ["-lc", "echo hi"]);
+        expect(result.shouldUseLogin).toBe(true);
+        expect(result.flagsBeforeCommand).toEqual([]);  // -lc handled specially
+      });
+
+      it('should preserve flags before combined -lc', () => {
+        const result = parseBashWrapper("bash", ["--noprofile", "-lc", "echo hi"]);
+        expect(result.flagsBeforeCommand).toEqual(["--noprofile"]);
+        expect(result.shouldUseLogin).toBe(true);
+      });
+    });
   });
 });
