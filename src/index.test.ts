@@ -386,5 +386,29 @@ describe('MCP Shell Server', () => {
         expect(result.argsAfterCommand).toBe(2);  // Would be past the end of array
       });
     });
+
+    describe('Long flag handling', () => {
+      it('should not treat long flags with "l" as login shell', () => {
+        // --noprofile contains 'l' but should NOT trigger login mode
+        const result = parseBashWrapper("bash", ["--noprofile", "-c", "echo hi"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.shouldUseLogin).toBe(false);  // Should NOT be login
+      });
+
+      it('should not treat long flags with "c" as command flag', () => {
+        // This should fail because there's no actual -c flag
+        expect(() => parseBashWrapper("bash", ["--norc", "echo hi"])).toThrow("missing -c command string");
+      });
+
+      it('should only detect short -l flag', () => {
+        const result = parseBashWrapper("bash", ["-l", "-c", "echo hi"]);
+        expect(result.shouldUseLogin).toBe(true);
+      });
+
+      it('should detect -l in combined short flags', () => {
+        const result = parseBashWrapper("bash", ["-lc", "echo hi"]);
+        expect(result.shouldUseLogin).toBe(true);
+      });
+    });
   });
 });

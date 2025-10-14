@@ -229,13 +229,16 @@ export function parseBashWrapper(cmd: string, args: string[]): {
     }
 
     if (arg.startsWith("-")) {
-      // Check for -l flag
-      if (arg.includes("l")) {
-        login = true;
+      // Check for -l flag (only in short form like -l, -lc, -cl, not --noprofile)
+      if (arg.startsWith("-") && !arg.startsWith("--")) {
+        // Short flags like -l, -lc, -cl
+        if (arg.includes("l")) {
+          login = true;
+        }
       }
 
       // Check for -c flag (combined like -lc or separate -c)
-      if (arg.includes("c")) {
+      if (arg.includes("c") && !arg.startsWith("--")) {
         // Next arg should be the command string
         if (i + 1 >= args.length) {
           throw new Error("missing command string after -c");
