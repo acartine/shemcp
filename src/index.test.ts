@@ -11,7 +11,9 @@ import {
   server,
   createPolicyFromConfig,
   setConfigForTesting,
-  getEffectiveLimits
+  getEffectiveLimits,
+  parseBashWrapper,
+  parseShellCommand
 } from './index.js';
 import { DEFAULT_CONFIG } from './config/schema.js';
 import type { Policy } from './index.js';
@@ -245,6 +247,94 @@ describe('MCP Shell Server', () => {
       expect(convertedPolicy.timeoutMs).toBe(testConfig.limits.timeout_seconds * 1000);
       expect(convertedPolicy.maxBytes).toBe(testConfig.limits.max_output_bytes);
       expect(convertedPolicy.envWhitelist).toEqual(testConfig.environment.whitelist);
+    });
+  });
+
+  describe('Bash Wrapper Handling', () => {
+    describe('parseShellCommand', () => {
+      it('should parse simple commands', () => {
+        expect(parseShellCommand("git status")).toEqual(["git", "status"]);
+        expect(parseShellCommand("aws s3 ls")).toEqual(["aws", "s3", "ls"]);
+      });
+
+      it('should handle single quotes', () => {
+        expect(parseShellCommand("echo 'hello world'")).toEqual(["echo", "hello world"]);
+        expect(parseShellCommand("git commit -m 'my message'")).toEqual(["git", "commit", "-m", "my message"]);
+      });
+
+      it('should handle double quotes', () => {
+        expect(parseShellCommand('echo "hello world"')).toEqual(["echo", "hello world"]);
+        expect(parseShellCommand('git commit -m "my message"')).toEqual(["git", "commit", "-m", "my message"]);
+      });
+
+      it('should handle escaped characters', () => {
+        expect(parseShellCommand("echo hello\\ world")).toEqual(["echo", "hello world"]);
+      });
+
+      it('should handle empty strings', () => {
+        expect(parseShellCommand("")).toEqual([]);
+        expect(parseShellCommand("   ")).toEqual([]);
+      });
+    });
+
+    describe('parseBashWrapper', () => {
+      it('should detect non-wrapper commands', () => {
+        const result = parseBashWrapper("git", ["status"]);
+        expect(result.isWrapper).toBe(false);
+        expect(result.executableToCheck).toBe("git");
+        expect(result.shouldUseLogin).toBe(false);
+      });
+
+      it('should parse bash -lc wrapper', () => {
+        const result = parseBashWrapper("bash", ["-lc", "aws s3 ls"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.executableToCheck).toBe("aws");
+        expect(result.shouldUseLogin).toBe(true);
+        expect(result.commandString).toBe("aws s3 ls");
+      });
+
+      it('should parse bash -c wrapper (non-login)', () => {
+        const result = parseBashWrapper("bash", ["-c", "git status"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.executableToCheck).toBe("git");
+        expect(result.shouldUseLogin).toBe(false);
+        expect(result.commandString).toBe("git status");
+      });
+
+      it('should parse bash -l -c wrapper (separate flags)', () => {
+        const result = parseBashWrapper("bash", ["-l", "-c", "kubectl get pods"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.executableToCheck).toBe("kubectl");
+        expect(result.shouldUseLogin).toBe(true);
+        expect(result.commandString).toBe("kubectl get pods");
+      });
+
+      it('should reject bash -l without -c', () => {
+        expect(() => parseBashWrapper("bash", ["-l"])).toThrow("missing -c command string");
+      });
+
+      it('should reject bash -c without command string', () => {
+        expect(() => parseBashWrapper("bash", ["-c"])).toThrow("missing command string after -c");
+      });
+
+      it('should reject empty or whitespace-only command string', () => {
+        // Empty strings and whitespace-only strings should be rejected
+        // The error thrown depends on how bash processes them:
+        // - Empty string ("") gets caught by the tokenizer returning empty array
+        // - Whitespace-only ("   ") also gets caught by tokenizer
+        expect(() => parseBashWrapper("bash", ["-lc", ""])).toThrow("empty command string");
+        expect(() => parseBashWrapper("bash", ["-lc", "   "])).toThrow("empty command string");
+      });
+
+      it('should extract first executable from complex commands', () => {
+        const result = parseBashWrapper("bash", ["-lc", "aws s3 sync . s3://bucket"]);
+        expect(result.executableToCheck).toBe("aws");
+      });
+
+      it('should handle commands with quotes', () => {
+        const result = parseBashWrapper("bash", ["-c", 'git commit -m "my message"']);
+        expect(result.executableToCheck).toBe("git");
+      });
     });
   });
 });
