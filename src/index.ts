@@ -359,10 +359,59 @@ export function parseShellCommand(cmdStr: string): string[] {
   return tokens;
 }
 
-export function allowedCommand(full: string, testPolicy?: Policy): boolean {
+export type PolicyCheckResult = {
+  allowed: boolean;
+  reason: string;
+  matchedRule?: string;
+  ruleType?: 'allow' | 'deny';
+};
+
+/**
+ * Check if a command is allowed by policy and return detailed diagnostics
+ * @param full The full command line to check
+ * @param testPolicy Optional policy to use (defaults to global policy)
+ * @returns Detailed result with reason for allow/deny decision
+ */
+export function checkCommandPolicy(full: string, testPolicy?: Policy): PolicyCheckResult {
   const currentPolicy = testPolicy || policy;
-  if (currentPolicy.deny.some(rx => rx.test(full))) return false;
-  return currentPolicy.allow.some(rx => rx.test(full));
+
+  // Check deny rules first (they have priority)
+  for (const denyRule of currentPolicy.deny) {
+    if (denyRule.test(full)) {
+      return {
+        allowed: false,
+        reason: `Command matches deny rule`,
+        matchedRule: denyRule.source,
+        ruleType: 'deny'
+      };
+    }
+  }
+
+  // Check allow rules
+  for (const allowRule of currentPolicy.allow) {
+    if (allowRule.test(full)) {
+      return {
+        allowed: true,
+        reason: `Command matches allow rule`,
+        matchedRule: allowRule.source,
+        ruleType: 'allow'
+      };
+    }
+  }
+
+  // No rules matched - command is denied by default
+  return {
+    allowed: false,
+    reason: `Command does not match any allow rule`
+  };
+}
+
+/**
+ * Legacy function for backward compatibility
+ * @deprecated Use checkCommandPolicy for better diagnostics
+ */
+export function allowedCommand(full: string, testPolicy?: Policy): boolean {
+  return checkCommandPolicy(full, testPolicy).allowed;
 }
 
 export function filteredEnv(testPolicy?: Policy): NodeJS.ProcessEnv {
@@ -978,9 +1027,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       fullCommandForPolicy = buildCmdLine(input.cmd, input.args || []);
     }
 
-    if (!allowedCommand(fullCommandForPolicy)) {
+    // Check policy with detailed diagnostics
+    const policyCheck = checkCommandPolicy(fullCommandForPolicy);
+    if (!policyCheck.allowed) {
+      let errorMessage = `Denied by policy: ${fullCommandForPolicy}\n\n`;
+      errorMessage += `Reason: ${policyCheck.reason}`;
+
+      if (policyCheck.matchedRule) {
+        errorMessage += `\nMatched ${policyCheck.ruleType} rule: /${policyCheck.matchedRule}/`;
+      }
+
+      // For wrapped commands, show both the original input and unwrapped command
+      if (wrapperInfo.isWrapper) {
+        const originalCmd = buildCmdLine(input.cmd, input.args || []);
+        if (originalCmd !== fullCommandForPolicy) {
+          errorMessage += `\n\nOriginal command: ${originalCmd}`;
+          errorMessage += `\nUnwrapped command: ${fullCommandForPolicy}`;
+        }
+      }
+
       return {
-        content: [{ type: "text", text: `Denied by policy: ${fullCommandForPolicy}` }],
+        content: [{ type: "text", text: errorMessage }],
         isError: true,
       };
     }
