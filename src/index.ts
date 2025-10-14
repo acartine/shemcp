@@ -242,9 +242,10 @@ export function parseBashWrapper(cmd: string, args: string[]): {
       // Check for -c flag (combined like -lc or separate -c)
       if (arg.includes("c") && !arg.startsWith("--")) {
         // For combined flags like -ec, -lc, -xlc, extract non-c/non-l flags BEFORE breaking
-        const otherFlags = arg.slice(1).split('').filter(f => f !== 'c' && f !== 'l').join('');
-        if (otherFlags.length > 0) {
-          flagsBeforeCommand.push('-' + otherFlags);
+        // Split them into individual flags (e.g., -xe becomes ['-x', '-e'])
+        const otherFlagsArray = arg.slice(1).split('').filter(f => f !== 'c' && f !== 'l');
+        for (const flag of otherFlagsArray) {
+          flagsBeforeCommand.push('-' + flag);
         }
 
         // Next arg should be the command string

@@ -446,5 +446,41 @@ describe('MCP Shell Server', () => {
         expect(result.shouldUseLogin).toBe(true);
       });
     });
+
+    describe('Combined short flags with c', () => {
+      it('should extract other flags from -ec bundle', () => {
+        const result = parseBashWrapper("bash", ["-ec", "echo hi"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.flagsBeforeCommand).toEqual(["-e"]);  // -e preserved, -c handled
+      });
+
+      it('should extract other flags from -xlc bundle', () => {
+        const result = parseBashWrapper("bash", ["-xlc", "echo hi"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.shouldUseLogin).toBe(true);  // -l detected
+        expect(result.flagsBeforeCommand).toEqual(["-x"]);  // -x preserved, -l and -c handled
+      });
+
+      it('should handle -pc bundle', () => {
+        const result = parseBashWrapper("bash", ["-pc", "echo hi"]);
+        expect(result.flagsBeforeCommand).toEqual(["-p"]);  // -p preserved
+      });
+
+      it('should handle -xec bundle', () => {
+        const result = parseBashWrapper("bash", ["-xec", "echo hi"]);
+        expect(result.flagsBeforeCommand).toEqual(["-x", "-e"]);  // both -x and -e preserved as separate flags
+      });
+
+      it('should handle pure -lc with no other flags', () => {
+        const result = parseBashWrapper("bash", ["-lc", "echo hi"]);
+        expect(result.shouldUseLogin).toBe(true);
+        expect(result.flagsBeforeCommand).toEqual([]);  // Nothing extra to preserve
+      });
+
+      it('should handle pure -c with no other flags', () => {
+        const result = parseBashWrapper("bash", ["-c", "echo hi"]);
+        expect(result.flagsBeforeCommand).toEqual([]);  // Nothing to preserve
+      });
+    });
   });
 });
