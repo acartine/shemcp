@@ -680,11 +680,11 @@ export const tools: Tool[] = [
         max_output_bytes: { type: "number", minimum: 1000, maximum: 10000000, description: "Maximum output size in bytes (1000-10M, will be clamped to policy limits)" },
         page: {
           type: "object",
-          description: "Pagination configuration for handling large command outputs. Enables reading output in chunks to avoid memory issues and improve performance when dealing with large files or long-running commands. Both 'page' and 'cursor' are required for pagination.",
+          description: "Pagination configuration.  Pagination is always on and hence a required attribute.",
           properties: {
             cursor: {
               type: "object",
-              description: "Position marker indicating where to start reading from the output stream. Used for resuming pagination from a specific point.",
+              description: "Position marker indicating where to start reading from the output stream. 0 for first request, then use next_cursor from prior response.",
               properties: {
                 cursor_type: {
                   type: "string",

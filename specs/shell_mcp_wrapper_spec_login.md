@@ -1,0 +1,140 @@
+# Shell MCP Wrapper Handling: `bash -lc` **with login (`-l`) support**
+
+Simple, predictable handling of `bash -lc` _and_ `bash -l -c` so agents get the PATH they expect, while we still enforce an allowlist on the **real** command.
+
+---
+
+## 🎯 Goal
+
+Let agents keep using:
+```bash
+bash -lc "aws s3 ls"
+bash -l -c "kubectl get pods"
+```
+…and have it **just work** — i.e., correct PATH/expansions — without forcing `bash` onto the allowlist. We unwrap the wrapper for policy, then execute through bash.
+
+---
+
+## ✅ Behavior (short version)
+
+1. **Detect wrapper**
+   - If the first argv is `"bash"` and any following argument is a dash-flag (`-…`), treat it as a shell wrapper.
+
+2. **Find the command string**
+   - Locate `-c`. The **next** argv after `-c` is the command string (required). Reject if missing.
+
+3. **Extract the underlying executable**
+   - Parse the command string with `shlex.split()` and take the **first token** as the executable (e.g., `aws` in `"aws s3 ls"`).  
+   - Check that executable against the allowlist. If not allowed → **reject**.
+
+4. **Execute via bash**
+   - If flags include **`-l`** (either `-lc` or separate `-l -c`), run a **login shell**:
+     ```bash
+     /bin/bash -l -o pipefail -o errexit -c "<command>"
+     ```
+   - Otherwise (no `-l`), run:
+     ```bash
+     /bin/bash -o pipefail -o errexit -c "<command>"
+     ```
+
+5. **Large output**
+   - Normal pagination/spill rules still apply (see your `shell_exec` spec).
+
+That’s it. No external modes, no extra knobs.
+
+---
+
+## 🛡️ What we do **not** complicate
+
+- We **don’t** expose execution “modes.” There is one implicit behavior.
+- We **don’t** re-allowlist `bash`; we **unwrap** and check the **underlying command** instead.
+- We **don’t** parse pipelines for now. Only the **first** external command is checked.
+- We **don’t** block rc/profile sourcing when `-l` is used. (You explicitly accepted this trade‑off.)
+
+---
+
+## 🔍 Flag handling rules
+
+- The flags may be combined (`-lc`) or separate (`-l -c`).
+- `-c` is **required** to provide the command string. If missing → reject.
+- `-l` is **optional**. If present, we run a login shell. If absent, we don’t.
+- Other flags are ignored.
+
+> Minimal parser: check each dash-arg; set `login = "l" in flags`, `has_c = "c" in flags` or arg == "-c". The command string index is the token **after** the `-c` token.
+
+---
+
+## 🧩 Examples
+
+| Input argv | Result |
+|---|---|
+| `["bash","-lc","aws s3 ls"]` | ✅ Allowed (checks `aws`), executed with **login** shell |
+| `["bash","-c","git status"]` | ✅ Allowed (checks `git`), executed **without** login shell |
+| `["bash","-l","-c","kubectl get pods"]` | ✅ Allowed (checks `kubectl`), executed with **login** shell |
+| `["bash","-lc","nc -l 8080"]` | ❌ Rejected (`nc` not on allowlist) |
+| `["bash","-l"]` | ❌ Rejected (missing `-c`/command string) |
+| `["git","status"]` | ✅ Direct (no wrapper), checks `git` |
+
+---
+
+## ⚙️ Pseudocode (tiny)
+
+```python
+def handle(argv):
+    if not argv: return reject("empty command")
+
+    if argv[0] == "bash" and len(argv) > 1 and argv[1].startswith("-"):
+        login = False
+        cmd_str = None
+        i = 1
+        while i < len(argv):
+            a = argv[i]
+            if a.startswith("-"):
+                if "l" in a: login = True
+                if "c" in a:
+                    # if a == "-c" (separate) then next arg is the string
+                    # if a like "-lc" next arg is still the string
+                    if i + 1 >= len(argv): return reject("missing command string after -c")
+                    cmd_str = argv[i+1]
+                    break
+                i += 1
+            else:
+                i += 1
+
+        if not cmd_str: return reject("missing -c command string")
+        tokens = shlex.split(cmd_str)
+        if not tokens: return reject("empty command string")
+        first_exec = tokens[0]  # e.g., "aws"
+        allowlist_check(first_exec)  # raise if denied
+
+        bash = "/bin/bash"
+        flags = ["-o", "pipefail", "-o", "errexit", "-c", cmd_str]
+        if login: flags.insert(0, "-l")
+        return exec_proc([bash] + flags)
+
+    # no wrapper
+    allowlist_check(argv[0])
+    return exec_proc(argv)
+```
+
+---
+
+## 🧪 Quick tests
+
+- `bash -lc "printenv PATH"` → runs as login shell; PATH reflects login profile/rc.
+- `bash -c "printenv PATH"` → non-login; PATH is MCP’s environment.
+- `bash -lc "aws --version"` → passes if `aws` is allowlisted.
+- `bash -lc "nc -l 8080"` → rejected if `nc` is not allowlisted.
+
+---
+
+## 📝 Notes
+
+- If PATH is still a problem in some setups, set a **baseline PATH** in the MCP process env. The login shell will extend/override it as usual.
+- Keep stdout chunking/pagination enabled so login shells can’t flood the model.
+- Echo back the **effective command** used for execution in the response for transparency.
+
+---
+
+**Author:** Generated by ChatGPT (GPT‑5)  
+**Date:** 2025‑10‑14
