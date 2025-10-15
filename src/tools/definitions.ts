@@ -52,8 +52,7 @@ export const tools: Tool[] = [
               maximum: 100000,
               description: "Maximum number of lines to return in this page. The command stops on whichever limit (bytes or lines) is hit first. Useful for text files where line boundaries matter."
             }
-          },
-          required: ["cursor"]
+          }
         },
         on_large_output: { type: "string", enum: ["spill", "truncate", "error"], description: "How to handle large outputs", default: "spill" }
       },
