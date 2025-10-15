@@ -37,7 +37,7 @@ export const tools: Tool[] = [
                   default: 0
                 }
               },
-              required: ["cursor_type"]
+              default: { cursor_type: "bytes", offset: 0 }
             },
             limit_bytes: {
               type: "number",

@@ -173,18 +173,18 @@ Ask your MCP client to call these tools with the following inputs:
   - `{ "cwd": "src" }` → returns resolved `src` path and `within_sandbox: true` if it exists/inside
 
 - `shell_exec` examples:
-- `{ "cmd": "git", "args": ["status"], "cwd": ".", "page": {} }`
-- `{ "cmd": "npm", "args": ["test"], "cwd": ".", "page": {} }`
-- `{ "cmd": "ls", "args": ["-la"], "cwd": "src", "page": {} }`
+- `{ "cmd": "git", "args": ["status"], "cwd": ".", "page": { "cursor": { "cursor_type": "bytes", "offset": 0 } } }`
+- `{ "cmd": "npm", "args": ["test"], "cwd": ".", "page": { "cursor": { "cursor_type": "bytes", "offset": 0 } } }`
+- `{ "cmd": "ls", "args": ["-la"], "cwd": "src", "page": { "cursor": { "cursor_type": "bytes", "offset": 0 } } }`
 
 - **Pagination examples:**
-  - `{ "cmd": "git", "args": ["log"], "page": { "limit_bytes": 32768 } }` → First 32KB of git log
-  - `{ "cmd": "cat", "args": ["large.log"], "page": { "cursor": "bytes:40000" } }` → Next page from byte 40000
-  - `{ "cmd": "find", "args": [".", "-name", "*.ts"], "on_large_output": "spill" }` → Spill large find results to file
+  - `{ "cmd": "git", "args": ["log"], "page": { "cursor": { "cursor_type": "bytes", "offset": 0 }, "limit_bytes": 32768 } }` → First 32KB of git log
+  - `{ "cmd": "cat", "args": ["large.log"], "page": { "cursor": { "cursor_type": "bytes", "offset": 40000 } } }` → Next page from byte 40000
+  - `{ "cmd": "find", "args": [".", "-name", "*.ts"], "page": { "cursor": { "cursor_type": "bytes", "offset": 0 } }, "on_large_output": "spill" }` → Spill large find results to file
 
 - **Spill file reading examples:**
-  - `{ "uri": "mcp://tmp/exec-abc123.out", "limit_bytes": 16384 }` → Read first 16KB of spilled file
-  - `{ "uri": "mcp://tmp/exec-abc123.out", "cursor": "bytes:16384", "limit_bytes": 16384 }` → Read next 16KB chunk
+  - `{ "uri": "mcp://tmp/exec-abc123.out", "cursor": { "cursor_type": "bytes", "offset": 0 }, "limit_bytes": 16384 }` → Read first 16KB of spilled file
+  - `{ "uri": "mcp://tmp/exec-abc123.out", "cursor": { "cursor_type": "bytes", "offset": 16384 }, "limit_bytes": 16384 }` → Read next 16KB chunk
 
 ## Quick Start
 
@@ -335,7 +335,7 @@ When dealing with commands that produce large outputs (like logs, large files, o
 {
   "cmd": "git",
   "args": ["log", "--oneline"],
-  "page": { "limit_bytes": 32768 }
+  "page": { "cursor": { "cursor_type": "bytes", "offset": 0 }, "limit_bytes": 32768 }
 }
 ```
 Returns first 32KB of git history with `next_cursor` for continuation.
@@ -346,7 +346,7 @@ Returns first 32KB of git history with `next_cursor` for continuation.
   "cmd": "cat",
   "args": ["huge.log"],
   "on_large_output": "spill",
-  "page": { "limit_bytes": 40000 }
+  "page": { "cursor": { "cursor_type": "bytes", "offset": 0 }, "limit_bytes": 40000 }
 }
 ```
 Spills large log file and returns first 40KB with `spill_uri` for continued reading.
@@ -356,7 +356,7 @@ Spills large log file and returns first 40KB with `spill_uri` for continued read
 {
   "cmd": "find",
   "args": [".", "-type", "f", "-name", "*.js"],
-  "page": { "limit_lines": 1000 }
+  "page": { "cursor": { "cursor_type": "bytes", "offset": 0 }, "limit_lines": 1000 }
 }
 ```
 Returns up to 1000 lines of file listing, whichever comes first.
@@ -369,6 +369,7 @@ When `shell_exec` returns a `spill_uri`, use `read_file_chunk` to read the data 
 ```json
 {
   "uri": "mcp://tmp/exec-abc123.out",
+  "cursor": { "cursor_type": "bytes", "offset": 0 },
   "limit_bytes": 16384
 }
 ```
@@ -378,7 +379,7 @@ Reads first 16KB of the spilled file.
 ```json
 {
   "uri": "mcp://tmp/exec-abc123.out",
-  "cursor": "bytes:16384",
+  "cursor": { "cursor_type": "bytes", "offset": 16384 },
   "limit_bytes": 16384
 }
 ```
