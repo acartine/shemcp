@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync } from "node:fs";
+import { appendFileSync, existsSync, unlinkSync } from "node:fs";
 import type { Policy } from "./policy.js";
 import { filteredEnv } from "./policy.js";
 import {
@@ -219,10 +219,10 @@ export async function execWithPagination(
       cleanup: () => {
         try {
           if (hasStdoutSpill && existsSync(spillFile!.path)) {
-            require("node:fs").unlinkSync(spillFile!.path);
+            unlinkSync(spillFile!.path);
           }
           if (hasStderrSpill && existsSync(spillFile!.stderrPath!)) {
-            require("node:fs").unlinkSync(spillFile!.stderrPath!);
+            unlinkSync(spillFile!.stderrPath!);
           }
         } catch (e) {
           debugLog("Failed to cleanup spill files", { path: spillFile!.path, stderrPath: spillFile!.stderrPath, error: e });
