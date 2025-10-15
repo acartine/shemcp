@@ -10,7 +10,9 @@ import {
   createSpillFile,
   detectMimeType,
   countLines,
-  readFileRange
+  readFileRange,
+  DEFAULT_PAGE_LIMIT_BYTES,
+  MAX_PAGE_LIMIT_BYTES
 } from "./pagination.js";
 import { debugLog } from "./debug.js";
 
@@ -42,7 +44,9 @@ export async function execWithPagination(
   const child = spawn(cmd, args, { cwd, env: filteredEnv(policy), stdio: ["ignore", "pipe", "pipe"] });
 
   // Parse pagination config
-  const limitBytes = pagination?.limit_bytes || 65536;
+  const requestedLimitBytes = pagination?.limit_bytes ?? DEFAULT_PAGE_LIMIT_BYTES;
+  const sanitizedLimitBytes = Math.max(1, requestedLimitBytes);
+  const limitBytes = Math.min(sanitizedLimitBytes, MAX_PAGE_LIMIT_BYTES);
   const limitLines = pagination?.limit_lines || 2000;
   const startOffset = pagination?.cursor ? parseCursor(pagination.cursor).offset : 0;
 

@@ -23,25 +23,27 @@ The solution: **structured pagination and spillover mechanisms** so agents can f
   "env": {"AWS_REGION": "eu-north-1"},
   "page": {
     "cursor": "bytes:0",         // opaque position marker
-    "limit_bytes": 65536,        // default: 64 KB
+    "limit_bytes": 40000,        // default: 40 KB
     "limit_lines": 2000          // optional: stops on whichever hits first
   },
   "on_large_output": "spill"     // "spill" | "truncate" | "error"
 }
 ```
 
+Requests that omit the `page` object must be rejected with the error `pagination parameters are required`.
+
 ### Response Schema
 
 ```jsonc
 {
   "exit_code": 0,
-  "stdout_chunk": "first 64k of data...",
+  "stdout_chunk": "first 40k of data...",
   "stderr_chunk": "",
   "bytes_start": 0,
-  "bytes_end": 65535,
+  "bytes_end": 39999,
   "total_bytes": 58112234,
   "truncated": false,
-  "next_cursor": "bytes:65536",   // omit if end reached
+  "next_cursor": "bytes:40000",   // omit if end reached
   "spill_uri": null,              // URI of temp file if spill mode engaged
   "mime": "text/plain",
   "line_count": 1780,
@@ -62,7 +64,7 @@ A secondary tool `read_file_chunk` is used to fetch it in small, token-safe chun
 {
   "uri": "mcp://tmp/exec-abc123.out",
   "cursor": "bytes:0",
-  "limit_bytes": 65536
+  "limit_bytes": 40000
 }
 ```
 
@@ -72,9 +74,9 @@ A secondary tool `read_file_chunk` is used to fetch it in small, token-safe chun
 {
   "data": "…",
   "bytes_start": 0,
-  "bytes_end": 65535,
+  "bytes_end": 39999,
   "total_bytes": 58112234,
-  "next_cursor": "bytes:65536",
+  "next_cursor": "bytes:40000",
   "mime": "text/plain"
 }
 ```
@@ -92,7 +94,7 @@ LLMs can automatically paginate when you expose standard keys:
 ### Example Loop (pseudo)
 
 ```python
-res = shell_exec(cmd="ls", args=["-la"], page={"limit_bytes": 65536})
+res = shell_exec(cmd="ls", args=["-la"], page={"limit_bytes": 40000})
 while res.get("next_cursor"):
     res = shell_exec(cmd="ls", args=["-la"], page={"cursor": res["next_cursor"]})
 ```
@@ -102,7 +104,7 @@ while res.get("next_cursor"):
 ```python
 res = shell_exec(cmd="cat", args=["huge.log"])
 if res["spill_uri"]:
-    chunk = read_file_chunk(uri=res["spill_uri"], limit_bytes=65536)
+    chunk = read_file_chunk(uri=res["spill_uri"], limit_bytes=40000)
     while chunk.get("next_cursor"):
         chunk = read_file_chunk(uri=res["spill_uri"], cursor=chunk["next_cursor"])
 ```
@@ -125,7 +127,7 @@ if res["spill_uri"]:
 
 | Field | Default | Notes |
 |--------|----------|--------|
-| `limit_bytes` | 65536 | ~8–16k tokens of safe output |
+| `limit_bytes` | 40000 | ~8–16k tokens of safe output |
 | `limit_lines` | 2000 | Line safety fallback |
 | `on_large_output` | "spill" | Always spill rather than truncate |
 | `ansi_strip` | true | Remove color codes |
@@ -164,7 +166,7 @@ if res["spill_uri"]:
 | Scenario | Command | Expected |
 |-----------|----------|-----------|
 | Small output | `shell_exec echo 'hi'` | returns full stdout |
-| Paged | `shell_exec ls -R /usr` | returns first 64KB + `next_cursor` |
+| Paged | `shell_exec ls -R /usr` | returns first 40KB + `next_cursor` |
 | Spill | `shell_exec cat huge.log` | returns `spill_uri` |
 | File paging | `read_file_chunk` with `next_cursor` | returns subsequent chunks |
 

@@ -37,14 +37,14 @@ export const tools: Tool[] = [
                   default: 0
                 }
               },
-              required: ["cursor_type"]
+              default: { cursor_type: "bytes", offset: 0 }
             },
             limit_bytes: {
               type: "number",
               minimum: 1,
-              maximum: 10000000,
-              description: "Maximum number of bytes to return in this page. Larger values provide more content but use more memory. Default: 64 KB (65536 bytes).",
-              default: 65536
+              maximum: 40000,
+              description: "Maximum number of bytes to return in this page. Larger values provide more content but use more memory. Default: 40 KB (40000 bytes).",
+              default: 40000
             },
             limit_lines: {
               type: "number",
@@ -52,8 +52,7 @@ export const tools: Tool[] = [
               maximum: 100000,
               description: "Maximum number of lines to return in this page. The command stops on whichever limit (bytes or lines) is hit first. Useful for text files where line boundaries matter."
             }
-          },
-          required: ["cursor"]
+          }
         },
         on_large_output: { type: "string", enum: ["spill", "truncate", "error"], description: "How to handle large outputs", default: "spill" }
       },
@@ -86,7 +85,7 @@ export const tools: Tool[] = [
           },
           default: { cursor_type: "bytes", offset: 0 }
         },
-        limit_bytes: { type: "number", minimum: 1, maximum: 10000000, description: "Maximum bytes to read", default: 65536 }
+        limit_bytes: { type: "number", minimum: 1, maximum: 40000, description: "Maximum bytes to read", default: 40000 }
       },
       required: ["uri"]
     }

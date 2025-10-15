@@ -2,11 +2,23 @@ import { resolve, isAbsolute as pathIsAbsolute } from "node:path";
 import type { Policy } from "../lib/policy.js";
 import { ensureCwd, checkCommandPolicy, getEffectiveLimits } from "../lib/policy.js";
 import { buildCmdLine, parseBashWrapper, parseShellCommand } from "../lib/command.js";
-import { type PaginationConfig, type LargeOutputBehavior, parseCursor } from "../lib/pagination.js";
+import {
+  type PaginationConfig,
+  type LargeOutputBehavior,
+  parseCursor,
+  MAX_PAGE_LIMIT_BYTES
+} from "../lib/pagination.js";
 import { execWithPagination } from "../lib/execution.js";
 
 export async function handleShellExec(args: any, policy: Policy) {
   const input = args as any;
+
+  if (!input.page || typeof input.page !== "object") {
+    return {
+      content: [{ type: "text", text: "Error: pagination parameters are required" }],
+      isError: true,
+    };
+  }
 
   // Enforce relative cwd only; default to sandbox root
   if (input.cwd && pathIsAbsolute(input.cwd)) {
@@ -77,13 +89,33 @@ Unwrapped command: ${fullCommandForPolicy}`;
   const { effectiveTimeoutMs, effectiveMaxBytes } = getEffectiveLimits(input, policy);
 
   // Parse pagination and large output handling options
-  const pagination: PaginationConfig | undefined = input.page;
+  const pagination = input.page as PaginationConfig;
   const onLargeOutput: LargeOutputBehavior = input.on_large_output || "spill";
 
+  if (pagination.limit_bytes !== undefined) {
+    const limitBytes = Number(pagination.limit_bytes);
+    if (!Number.isFinite(limitBytes) || limitBytes <= 0) {
+      return {
+        content: [{ type: "text", text: "Error: limit_bytes must be a positive number" }],
+        isError: true,
+      };
+    }
+    if (limitBytes > MAX_PAGE_LIMIT_BYTES) {
+      return {
+        content: [{
+          type: "text",
+          text: `Error: limit_bytes must be <= ${MAX_PAGE_LIMIT_BYTES}`,
+        }],
+        isError: true,
+      };
+    }
+  }
+
   // Validate cursor format if provided
-  if (pagination?.cursor) {
+  let parsedCursor: ReturnType<typeof parseCursor> | undefined;
+  if (pagination.cursor) {
     try {
-      parseCursor(pagination.cursor);
+      parsedCursor = parseCursor(pagination.cursor);
     } catch (error: any) {
       return {
         content: [{ type: "text", text: `Error: Invalid cursor format in pagination config: ${error.message}` }],
@@ -146,8 +178,8 @@ Unwrapped command: ${fullCommandForPolicy}`;
     duration_ms: res.durationMs,
     stdout_chunk: res.stdout,
     stderr_chunk: res.stderr,
-    bytes_start: pagination?.cursor ? parseCursor(pagination.cursor).offset : 0,
-    bytes_end: pagination?.cursor ? parseCursor(pagination.cursor).offset + Buffer.byteLength(res.stdout, 'utf8') : Buffer.byteLength(res.stdout, 'utf8'),
+    bytes_start: parsedCursor?.offset ?? 0,
+    bytes_end: (parsedCursor?.offset ?? 0) + Buffer.byteLength(res.stdout, 'utf8'),
     total_bytes: res.totalBytes,
     truncated: res.truncated,
     next_cursor: res.nextCursor,

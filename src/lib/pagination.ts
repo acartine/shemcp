@@ -4,6 +4,9 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { debugLog } from "./debug.js";
 
+export const MAX_PAGE_LIMIT_BYTES = 40000;
+export const DEFAULT_PAGE_LIMIT_BYTES = MAX_PAGE_LIMIT_BYTES;
+
 /** ---------- Pagination Types ---------- */
 
 export type CursorConfig = {
@@ -13,7 +16,7 @@ export type CursorConfig = {
 
 export type PaginationConfig = {
   cursor?: CursorConfig;  // position marker object for pagination (required when using pagination)
-  limit_bytes?: number;   // default: 64 KB
+  limit_bytes?: number;   // default & maximum: 40 KB
   limit_lines?: number;   // optional: stops on whichever hits first
 };
 

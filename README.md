@@ -98,13 +98,14 @@ Execute an allow-listed command inside the sandbox with support for pagination a
 - `timeout_ms`: Command timeout in milliseconds (deprecated, use `timeout_seconds`)
 - `timeout_seconds`: Command timeout in seconds (1-300, clamped to policy limits)
 - `max_output_bytes`: Maximum output size in bytes (1000-10M, clamped to policy limits)
-- `page`: Pagination configuration object:
+- `page` (required): Pagination configuration object:
   - `cursor`: Opaque position marker (e.g., "bytes:0")
-  - `limit_bytes`: Maximum bytes per page (default: 65536, ~8-16k tokens)
+  - `limit_bytes`: Maximum bytes per page (default: 40000, ~10k tokens)
   - `limit_lines`: Maximum lines per page (default: 2000, stops on whichever hits first)
 - `on_large_output`: How to handle large outputs: "spill" (default), "truncate", or "error"
 
 **Rules:**
+- A `page` object must be supplied; otherwise the request is rejected with `Error: pagination parameters are required`
 - `cwd` must be RELATIVE to the sandbox root
 - Absolute paths are rejected with an error that includes the received path and the sandbox root
 - Large outputs (>limit_bytes or >limit_lines) are handled according to `on_large_output` mode
@@ -113,13 +114,13 @@ Execute an allow-listed command inside the sandbox with support for pagination a
 ```json
 {
   "exit_code": 0,
-  "stdout_chunk": "first 64k of data...",
+  "stdout_chunk": "first 40k of data...",
   "stderr_chunk": "",
   "bytes_start": 0,
-  "bytes_end": 65535,
+  "bytes_end": 39999,
   "total_bytes": 58112234,
   "truncated": false,
-  "next_cursor": "bytes:65536",
+  "next_cursor": "bytes:40000",
   "spill_uri": "mcp://tmp/exec-abc123.out",
   "mime": "text/plain",
   "line_count": 1780,
@@ -139,16 +140,16 @@ Read paginated data from a spilled file created by `shell_exec` when `on_large_o
 **Parameters:**
 - `uri` (required): URI of the spilled file (e.g., "mcp://tmp/exec-abc123.out")
 - `cursor`: Opaque position marker (default: "bytes:0")
-- `limit_bytes`: Maximum bytes to read (default: 65536)
+- `limit_bytes`: Maximum bytes to read (default: 40000)
 
 **Response Format:**
 ```json
 {
   "data": "chunk of file content...",
   "bytes_start": 0,
-  "bytes_end": 65535,
+  "bytes_end": 39999,
   "total_bytes": 58112234,
-  "next_cursor": "bytes:65536",
+  "next_cursor": "bytes:40000",
   "mime": "text/plain"
 }
 ```
@@ -172,18 +173,18 @@ Ask your MCP client to call these tools with the following inputs:
   - `{ "cwd": "src" }` → returns resolved `src` path and `within_sandbox: true` if it exists/inside
 
 - `shell_exec` examples:
-  - `{ "cmd": "git", "args": ["status"], "cwd": "." }`
-  - `{ "cmd": "npm", "args": ["test"], "cwd": "." }`
-  - `{ "cmd": "ls", "args": ["-la"], "cwd": "src" }`
+- `{ "cmd": "git", "args": ["status"], "cwd": ".", "page": { "cursor": { "cursor_type": "bytes", "offset": 0 } } }`
+- `{ "cmd": "npm", "args": ["test"], "cwd": ".", "page": { "cursor": { "cursor_type": "bytes", "offset": 0 } } }`
+- `{ "cmd": "ls", "args": ["-la"], "cwd": "src", "page": { "cursor": { "cursor_type": "bytes", "offset": 0 } } }`
 
 - **Pagination examples:**
-  - `{ "cmd": "git", "args": ["log"], "page": { "limit_bytes": 32768 } }` → First 32KB of git log
-  - `{ "cmd": "cat", "args": ["large.log"], "page": { "cursor": "bytes:65536" } }` → Next page from byte 65536
-  - `{ "cmd": "find", "args": [".", "-name", "*.ts"], "on_large_output": "spill" }` → Spill large find results to file
+  - `{ "cmd": "git", "args": ["log"], "page": { "cursor": { "cursor_type": "bytes", "offset": 0 }, "limit_bytes": 32768 } }` → First 32KB of git log
+  - `{ "cmd": "cat", "args": ["large.log"], "page": { "cursor": { "cursor_type": "bytes", "offset": 40000 } } }` → Next page from byte 40000
+  - `{ "cmd": "find", "args": [".", "-name", "*.ts"], "page": { "cursor": { "cursor_type": "bytes", "offset": 0 } }, "on_large_output": "spill" }` → Spill large find results to file
 
 - **Spill file reading examples:**
-  - `{ "uri": "mcp://tmp/exec-abc123.out", "limit_bytes": 16384 }` → Read first 16KB of spilled file
-  - `{ "uri": "mcp://tmp/exec-abc123.out", "cursor": "bytes:16384", "limit_bytes": 16384 }` → Read next 16KB chunk
+  - `{ "uri": "mcp://tmp/exec-abc123.out", "cursor": { "cursor_type": "bytes", "offset": 0 }, "limit_bytes": 16384 }` → Read first 16KB of spilled file
+  - `{ "uri": "mcp://tmp/exec-abc123.out", "cursor": { "cursor_type": "bytes", "offset": 16384 }, "limit_bytes": 16384 }` → Read next 16KB chunk
 
 ## Quick Start
 
@@ -334,7 +335,7 @@ When dealing with commands that produce large outputs (like logs, large files, o
 {
   "cmd": "git",
   "args": ["log", "--oneline"],
-  "page": { "limit_bytes": 32768 }
+  "page": { "cursor": { "cursor_type": "bytes", "offset": 0 }, "limit_bytes": 32768 }
 }
 ```
 Returns first 32KB of git history with `next_cursor` for continuation.
@@ -345,17 +346,17 @@ Returns first 32KB of git history with `next_cursor` for continuation.
   "cmd": "cat",
   "args": ["huge.log"],
   "on_large_output": "spill",
-  "page": { "limit_bytes": 65536 }
+  "page": { "cursor": { "cursor_type": "bytes", "offset": 0 }, "limit_bytes": 40000 }
 }
 ```
-Spills large log file and returns first 64KB with `spill_uri` for continued reading.
+Spills large log file and returns first 40KB with `spill_uri` for continued reading.
 
 **Scenario 3: Processing large directory listings**
 ```json
 {
   "cmd": "find",
   "args": [".", "-type", "f", "-name", "*.js"],
-  "page": { "limit_lines": 1000 }
+  "page": { "cursor": { "cursor_type": "bytes", "offset": 0 }, "limit_lines": 1000 }
 }
 ```
 Returns up to 1000 lines of file listing, whichever comes first.
@@ -368,6 +369,7 @@ When `shell_exec` returns a `spill_uri`, use `read_file_chunk` to read the data 
 ```json
 {
   "uri": "mcp://tmp/exec-abc123.out",
+  "cursor": { "cursor_type": "bytes", "offset": 0 },
   "limit_bytes": 16384
 }
 ```
@@ -377,7 +379,7 @@ Reads first 16KB of the spilled file.
 ```json
 {
   "uri": "mcp://tmp/exec-abc123.out",
-  "cursor": "bytes:16384",
+  "cursor": { "cursor_type": "bytes", "offset": 16384 },
   "limit_bytes": 16384
 }
 ```
@@ -388,7 +390,7 @@ Reads the next 16KB chunk using the `next_cursor` from the previous response.
 **Automatic Pagination Loop:**
 ```javascript
 // Pseudo-code for automatic pagination
-let result = shell_exec(cmd, args, { limit_bytes: 65536 });
+let result = shell_exec(cmd, args, { page: { limit_bytes: 40000 } });
 while (result.next_cursor) {
   // Process current chunk
   processChunk(result.stdout_chunk);
@@ -403,9 +405,9 @@ while (result.next_cursor) {
 **Spill File Handling:**
 ```javascript
 // Pseudo-code for handling spilled files
-let result = shell_exec(cmd, args, { on_large_output: "spill" });
+let result = shell_exec(cmd, args, { on_large_output: "spill", page: {} });
 if (result.spill_uri) {
-  let chunk = read_file_chunk(result.spill_uri, 65536);
+  let chunk = read_file_chunk(result.spill_uri, 40000);
   while (chunk.next_cursor) {
     processChunk(chunk.data);
     chunk = read_file_chunk(result.spill_uri, chunk.next_cursor);
