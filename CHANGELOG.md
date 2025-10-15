@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.0
+
+### Minor Changes
+
+- [#52](https://github.com/acartine/shemcp/pull/52) [`56ebcf8`](https://github.com/acartine/shemcp/commit/56ebcf8352d3328bd1676e8d1b7c2f3c6ffa3b45) Thanks [@acartine](https://github.com/acartine)! - Enhance policy error diagnostics with detailed deny reasons
+
+  Add comprehensive diagnostic information when commands are denied by policy, including which regex rule matched, whether it was a deny rule or absence of allow rule, and for wrapped commands, both original and unwrapped versions. This makes policy debugging significantly easier for both users and agents.
+
 ## 0.10.0
 
 ### Minor Changes
