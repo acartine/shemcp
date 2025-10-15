@@ -183,6 +183,18 @@ describe('MCP Shell Server', () => {
       expect(chunkTool?.inputSchema.properties?.limit_bytes).toBeDefined();
       expect(chunkTool?.inputSchema.required).toContain("uri");
     });
+
+    it('should have shell_info tool without cwd parameter', () => {
+      const infoTool = tools.find(t => t.name === "shell_info");
+      expect(infoTool).toBeDefined();
+      expect(infoTool?.inputSchema.type).toBe("object");
+      // Should not have cwd property anymore
+      expect(infoTool?.inputSchema.properties?.cwd).toBeUndefined();
+      // Description should mention policy and version
+      expect(infoTool?.description).toContain("policy");
+      expect(infoTool?.description).toContain("version");
+      expect(infoTool?.description).toContain("sandbox root");
+    });
   });
 
   describe('Per-request limit overrides', () => {
