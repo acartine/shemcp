@@ -188,12 +188,51 @@ describe('MCP Shell Server', () => {
       const infoTool = tools.find(t => t.name === "shell_info");
       expect(infoTool).toBeDefined();
       expect(infoTool?.inputSchema.type).toBe("object");
-      // Should not have cwd property anymore
+      // Should not have cwd parameter anymore
       expect(infoTool?.inputSchema.properties?.cwd).toBeUndefined();
       // Description should mention policy and version
       expect(infoTool?.description).toContain("policy");
       expect(infoTool?.description).toContain("version");
       expect(infoTool?.description).toContain("sandbox root");
+    });
+
+    it('should return sandbox root, server version, and command policy from shell_info handler', async () => {
+      // Call the actual request handler
+      const handler = server['_requestHandlers'].get('tools/call');
+      expect(handler).toBeDefined();
+
+      const response = await handler!({
+        method: 'tools/call',
+        params: {
+          name: 'shell_info',
+          arguments: {}
+        }
+      });
+
+      // Parse the response
+      expect(response.content).toBeDefined();
+      expect(response.content.length).toBe(1);
+      expect(response.content[0].type).toBe('text');
+
+      const responseData = JSON.parse(response.content[0].text);
+
+      // Verify all expected fields are present
+      expect(responseData).toHaveProperty('sandbox_root');
+      expect(responseData).toHaveProperty('server_version');
+      expect(responseData).toHaveProperty('command_policy');
+
+      // Verify types and structure
+      expect(typeof responseData.sandbox_root).toBe('string');
+      expect(responseData.sandbox_root.length).toBeGreaterThan(0);
+
+      expect(typeof responseData.server_version).toBe('string');
+      expect(responseData.server_version).toMatch(/^\d+\.\d+\.\d+$/);
+
+      expect(responseData.command_policy).toHaveProperty('allow');
+      expect(responseData.command_policy).toHaveProperty('deny');
+      expect(Array.isArray(responseData.command_policy.allow)).toBe(true);
+      expect(Array.isArray(responseData.command_policy.deny)).toBe(true);
+      expect(responseData.command_policy.allow.length).toBeGreaterThan(0);
     });
   });
 
