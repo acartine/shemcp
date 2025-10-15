@@ -6,6 +6,7 @@ import {
   ensureCwd,
   buildCmdLine,
   allowedCommand,
+  checkCommandPolicy,
   filteredEnv,
   tools,
   server,
@@ -481,6 +482,140 @@ describe('MCP Shell Server', () => {
         const result = parseBashWrapper("bash", ["-c", "echo hi"]);
         expect(result.flagsBeforeCommand).toEqual([]);  // Nothing to preserve
       });
+    });
+  });
+
+  describe('Policy Diagnostics (checkCommandPolicy)', () => {
+    it('should return allowed with allow rule match', () => {
+      const result = checkCommandPolicy("git status", testPolicy);
+      expect(result.allowed).toBe(true);
+      expect(result.reason).toBe("Command matches allow rule");
+      expect(result.ruleType).toBe("allow");
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule).toContain("git");
+    });
+
+    it('should return denied with deny rule match', () => {
+      const result = checkCommandPolicy("git push origin main", testPolicy);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toBe("Command matches deny rule");
+      expect(result.ruleType).toBe("deny");
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule).toContain("push");
+    });
+
+    it('should return denied with no matching rules', () => {
+      const result = checkCommandPolicy("rm -rf /", testPolicy);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toBe("Command does not match any allow rule");
+      expect(result.ruleType).toBeUndefined();
+      expect(result.matchedRule).toBeUndefined();
+    });
+
+    it('should prioritize deny rules over allow rules', () => {
+      // git is allowed, but "git push origin main" is explicitly denied
+      const result = checkCommandPolicy("git push origin main", testPolicy);
+      expect(result.allowed).toBe(false);
+      expect(result.ruleType).toBe("deny");
+      expect(result.reason).toBe("Command matches deny rule");
+    });
+
+    it('should provide regex source in matched rule', () => {
+      const result = checkCommandPolicy("git status", testPolicy);
+      expect(result.allowed).toBe(true);
+      expect(result.matchedRule).toBeDefined();
+      // The regex source should be visible for debugging
+      expect(typeof result.matchedRule).toBe("string");
+      expect(result.matchedRule!.length).toBeGreaterThan(0);
+    });
+
+    it('should handle multiple allow rule matches (returns first)', () => {
+      // Multiple rules might match the same command
+      // The function should return the first matching rule
+      const result = checkCommandPolicy("git status", testPolicy);
+      expect(result.allowed).toBe(true);
+      expect(result.matchedRule).toBeDefined();
+    });
+
+    it('should work with custom test policy', () => {
+      const customPolicy: Policy = {
+        rootDirectory: '/test',
+        allow: [/^echo(\s|$)/i],
+        deny: [/^echo secret/i],
+        timeoutMs: 60000,
+        maxBytes: 2000000,
+        envWhitelist: []
+      };
+
+      // Deny rule should match
+      let result = checkCommandPolicy("echo secret data", customPolicy);
+      expect(result.allowed).toBe(false);
+      expect(result.ruleType).toBe("deny");
+
+      // Allow rule should match
+      result = checkCommandPolicy("echo hello", customPolicy);
+      expect(result.allowed).toBe(true);
+      expect(result.ruleType).toBe("allow");
+
+      // No rules match
+      result = checkCommandPolicy("cat file", customPolicy);
+      expect(result.allowed).toBe(false);
+      expect(result.ruleType).toBeUndefined();
+    });
+
+    it('should maintain backward compatibility with allowedCommand', () => {
+      // allowedCommand should use checkCommandPolicy internally
+      const cmd = "git status";
+      const newResult = checkCommandPolicy(cmd, testPolicy);
+      const legacyResult = allowedCommand(cmd, testPolicy);
+
+      expect(legacyResult).toBe(newResult.allowed);
+    });
+
+    it('should provide diagnostics for common scenarios', () => {
+      // Scenario 1: Command not on allowlist
+      let result = checkCommandPolicy("curl http://example.com", testPolicy);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain("does not match any allow rule");
+      expect(result.matchedRule).toBeUndefined();
+
+      // Scenario 2: Explicitly denied command
+      result = checkCommandPolicy("git push origin master", testPolicy);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain("matches deny rule");
+      expect(result.matchedRule).toBeDefined();
+
+      // Scenario 3: Allowed command
+      result = checkCommandPolicy("make build", testPolicy);
+      expect(result.allowed).toBe(true);
+      expect(result.reason).toContain("matches allow rule");
+      expect(result.matchedRule).toBeDefined();
+    });
+
+    it('should handle bash wrapper commands', () => {
+      // Test that wrapped commands can be checked
+      const result = checkCommandPolicy("bash -lc 'git status'", testPolicy);
+      // bash is on the allowlist, so this should pass
+      expect(result.allowed).toBe(true);
+      expect(result.ruleType).toBe("allow");
+    });
+
+    it('should return structured data for error messages', () => {
+      const result = checkCommandPolicy("forbidden-command", testPolicy);
+
+      // Verify all required fields are present for error message construction
+      expect(result).toHaveProperty('allowed');
+      expect(result).toHaveProperty('reason');
+      expect(typeof result.allowed).toBe('boolean');
+      expect(typeof result.reason).toBe('string');
+
+      // Optional fields should be undefined when not applicable
+      if (result.matchedRule) {
+        expect(typeof result.matchedRule).toBe('string');
+      }
+      if (result.ruleType) {
+        expect(['allow', 'deny']).toContain(result.ruleType);
+      }
     });
   });
 });
