@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.12.0
+
+### Minor Changes
+
+- [#54](https://github.com/acartine/shemcp/pull/54) [`4f66825`](https://github.com/acartine/shemcp/commit/4f668251220aa898179c9dc9b4c8d9acb744ce5d) Thanks [@acartine](https://github.com/acartine)! - Clarify shell_info tool to return sandbox root, policy, and version
+
+  The `shell_info` tool has been updated to align with its intended use case. It now clearly returns:
+
+  - `sandbox_root`: The absolute path to the sandbox root directory
+  - `server_version`: The MCP server version from package.json
+  - `command_policy`: The allow/deny regex patterns for command validation
+
+  The optional `cwd` resolution functionality has been removed as it was not aligned with the tool's intended purpose. This change improves tool discoverability by making the description match the actual data returned.
+
 ## 0.11.0
 
 ### Minor Changes
