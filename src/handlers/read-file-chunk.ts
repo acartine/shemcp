@@ -1,12 +1,36 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { parseCursor, detectMimeType, readFileRange, getFileSizeSync } from "../lib/pagination.js";
+import {
+  parseCursor,
+  detectMimeType,
+  readFileRange,
+  getFileSizeSync,
+  DEFAULT_PAGE_LIMIT_BYTES,
+  MAX_PAGE_LIMIT_BYTES,
+} from "../lib/pagination.js";
 
 export async function handleReadFileChunk(args: any) {
   const input = args as any;
   const uri = input.uri;
-  const limitBytes = input.limit_bytes || 65536;
+  const requestedLimit = input.limit_bytes ?? DEFAULT_PAGE_LIMIT_BYTES;
+  const numericLimit = Number(requestedLimit);
+
+  if (!Number.isFinite(numericLimit) || numericLimit <= 0) {
+    return {
+      content: [{ type: "text", text: "Error: limit_bytes must be a positive number" }],
+      isError: true,
+    };
+  }
+
+  if (numericLimit > MAX_PAGE_LIMIT_BYTES) {
+    return {
+      content: [{ type: "text", text: `Error: limit_bytes must be <= ${MAX_PAGE_LIMIT_BYTES}` }],
+      isError: true,
+    };
+  }
+
+  const limitBytes = Math.min(Math.max(numericLimit, 1), MAX_PAGE_LIMIT_BYTES);
 
   // Validate cursor format
   try {

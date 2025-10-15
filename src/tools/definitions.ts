@@ -42,9 +42,9 @@ export const tools: Tool[] = [
             limit_bytes: {
               type: "number",
               minimum: 1,
-              maximum: 10000000,
-              description: "Maximum number of bytes to return in this page. Larger values provide more content but use more memory. Default: 64 KB (65536 bytes).",
-              default: 65536
+              maximum: 40000,
+              description: "Maximum number of bytes to return in this page. Larger values provide more content but use more memory. Default: 40 KB (40000 bytes).",
+              default: 40000
             },
             limit_lines: {
               type: "number",
@@ -86,7 +86,7 @@ export const tools: Tool[] = [
           },
           default: { cursor_type: "bytes", offset: 0 }
         },
-        limit_bytes: { type: "number", minimum: 1, maximum: 10000000, description: "Maximum bytes to read", default: 65536 }
+        limit_bytes: { type: "number", minimum: 1, maximum: 40000, description: "Maximum bytes to read", default: 40000 }
       },
       required: ["uri"]
     }
