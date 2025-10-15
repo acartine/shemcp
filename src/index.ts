@@ -1030,19 +1030,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // Check policy with detailed diagnostics
     const policyCheck = checkCommandPolicy(fullCommandForPolicy);
     if (!policyCheck.allowed) {
-      let errorMessage = `Denied by policy: ${fullCommandForPolicy}\n\n`;
+      let errorMessage = `Denied by policy: ${fullCommandForPolicy}
+
+`;
       errorMessage += `Reason: ${policyCheck.reason}`;
 
       if (policyCheck.matchedRule) {
-        errorMessage += `\nMatched ${policyCheck.ruleType} rule: /${policyCheck.matchedRule}/`;
+        errorMessage += `
+Matched ${policyCheck.ruleType} rule: /${policyCheck.matchedRule}/`;
       }
 
       // For wrapped commands, show both the original input and unwrapped command
       if (wrapperInfo.isWrapper) {
         const originalCmd = buildCmdLine(input.cmd, input.args || []);
         if (originalCmd !== fullCommandForPolicy) {
-          errorMessage += `\n\nOriginal command: ${originalCmd}`;
-          errorMessage += `\nUnwrapped command: ${fullCommandForPolicy}`;
+          errorMessage += `
+
+Original command: ${originalCmd}`;
+          errorMessage += `
+Unwrapped command: ${fullCommandForPolicy}`;
         }
       }
 
