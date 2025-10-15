@@ -971,12 +971,10 @@ export const tools: Tool[] = [
   },
   {
     name: "shell_info",
-    description: "Get sandbox information (sandbox root) and optionally resolve a relative cwd against it.",
+    description: "Get sandbox information including the sandbox root path, allow/deny command policy, and server version.",
     inputSchema: {
       type: "object",
-      properties: {
-        cwd: { type: "string", description: "Optional relative path to resolve and check against sandbox root" }
-      }
+      properties: {}
     }
   }
 ];
@@ -1167,32 +1165,15 @@ Unwrapped command: ${fullCommandForPolicy}`;
   }
 
   if (name === "shell_info") {
-    const input = (args as any) || {};
     const root = resolve(policy.rootDirectory);
-    let info: any = { sandbox_root: root };
-    if (typeof input.cwd === 'string' && input.cwd.length > 0) {
-      const isAbs = pathIsAbsolute(input.cwd);
-      const resolved = isAbs ? input.cwd : resolve(root, input.cwd);
-      let within = false;
-      try {
-        const realRoot = realpathSync(root);
-        const realPath = existsSync(resolved) ? realpathSync(resolved) : resolved;
-        const rel = pathRelative(realRoot, realPath);
-        within = rel === "" || (!rel.startsWith("..") && !pathIsAbsolute(rel));
-      } catch {
-        // If realpath fails (non-existent), fall back to prefix-based check
-        const normResolved = resolve(resolved);
-        within = normResolved === root || normResolved.startsWith(root + (root.endsWith("/") ? "" : "/"));
+    const info = {
+      sandbox_root: root,
+      server_version: PKG_VERSION,
+      command_policy: {
+        allow: policy.allow.map(r => r.source),
+        deny: policy.deny.map(r => r.source)
       }
-      info = {
-        ...info,
-        input_cwd: input.cwd,
-        absolute_input: isAbs,
-        resolved_path: resolved,
-        within_sandbox: !isAbs && within,
-        note: isAbs ? "Absolute cwd is rejected by shell_exec; provide a relative path." : undefined
-      };
-    }
+    };
     return {
       content: [{ type: "text", text: JSON.stringify(info, null, 2) }]
     };
