@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.13.0
+
+### Minor Changes
+
+- [#58](https://github.com/acartine/shemcp/pull/58) [`60ac433`](https://github.com/acartine/shemcp/commit/60ac4335fa427d145e34bdbf151f1825b5d54279) Thanks [@acartine](https://github.com/acartine)! - Enforce pagination requirements and lower page limit to 40KB
+
+  - Cap pagination limit_bytes at 40KB default (down from 64KB) to improve performance and memory usage
+  - Make pagination object mandatory for all shell_exec requests - requests without page object are now rejected
+  - Apply consistent pagination defaults across all operations
+  - Update tool definitions, specifications, and documentation to reflect mandatory pagination
+
 ## 0.12.1
 
 ### Patch Changes
