@@ -49,7 +49,7 @@ export const DEFAULT_CONFIG: Config = {
   commands: {
     allow: [
       "^git(\\s|$)",
-      "^gh(\\s|$)", 
+      "^gh(\\s|$)",
       "^make(\\s|$)",
       "^grep(\\s|$)",
       "^sed(\\s|$)",
@@ -57,6 +57,7 @@ export const DEFAULT_CONFIG: Config = {
       "^aws(\\s|$)",
       "^az(\\s|$)",
       "^bash\\s+-lc\\s+",
+      "^sh\\s+-lc\\s+",
     ],
     deny: [
       "^git\\s+push(\\s+.*)?\\s+(origin\\s+)?(main|master)(\\s+.*)?$",

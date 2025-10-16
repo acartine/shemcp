@@ -32,7 +32,7 @@ export {
   ensureCwd,
   getEffectiveLimits
 } from "./lib/policy.js";
-export { buildCmdLine, parseBashWrapper, parseShellCommand } from "./lib/command.js";
+export { buildCmdLine, parseBashWrapper, parseShellWrapper, parseShellCommand } from "./lib/command.js";
 export { tools } from "./tools/definitions.js";
 
 // Initialize debug logging

@@ -129,8 +129,8 @@ Unwrapped command: ${fullCommandForPolicy}`;
   let execArgs: string[];
 
   if (wrapperInfo.isWrapper) {
-    // Execute via bash with proper flags
-    execCmd = "/bin/bash";
+    // Execute via the appropriate shell (bash or sh)
+    execCmd = wrapperInfo.shell === 'sh' ? "/bin/sh" : "/bin/bash";
 
     // Start with user-supplied flags (like --noprofile, --norc, etc.)
     execArgs = [...(wrapperInfo.flagsBeforeCommand || [])];
@@ -141,7 +141,13 @@ Unwrapped command: ${fullCommandForPolicy}`;
     }
 
     // Add our execution flags and command
-    execArgs.push("-o", "pipefail", "-o", "errexit", "-c", wrapperInfo.commandString!);
+    // Note: pipefail is bash-specific and not POSIX-compliant, so only add it for bash
+    if (wrapperInfo.shell === 'bash') {
+      execArgs.push("-o", "pipefail", "-o", "errexit", "-c", wrapperInfo.commandString!);
+    } else {
+      // For sh, use the portable short form -e instead of -o errexit (POSIX-compliant)
+      execArgs.push("-e", "-c", wrapperInfo.commandString!);
+    }
 
     // Append any trailing arguments after the command string (for $0, $1, etc.)
     // e.g., bash -c 'echo "$1"' -- foo  -> trailing args are ["--", "foo"]
