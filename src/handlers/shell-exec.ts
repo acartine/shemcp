@@ -145,8 +145,8 @@ Unwrapped command: ${fullCommandForPolicy}`;
     if (wrapperInfo.shell === 'bash') {
       execArgs.push("-o", "pipefail", "-o", "errexit", "-c", wrapperInfo.commandString!);
     } else {
-      // For sh, only use errexit (which is POSIX-compliant)
-      execArgs.push("-o", "errexit", "-c", wrapperInfo.commandString!);
+      // For sh, use the portable short form -e instead of -o errexit (POSIX-compliant)
+      execArgs.push("-e", "-c", wrapperInfo.commandString!);
     }
 
     // Append any trailing arguments after the command string (for $0, $1, etc.)
