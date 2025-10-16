@@ -59,20 +59,22 @@ export function parseShellCommand(cmdStr: string): string[] {
 }
 
 /**
- * Parse a bash wrapper command and extract the underlying command for allowlist checking
+ * Parse a shell wrapper command (bash or sh) and extract the underlying command for allowlist checking
  * Handles: bash -lc "cmd args", bash -c "cmd args", bash -l -c "cmd args"
- * Returns: { isWrapper: boolean, executableToCheck: string, shouldUseLogin: boolean, commandString?: string, argsAfterCommand?: number, flagsBeforeCommand?: string[] }
+ *          sh -lc "cmd args", sh -c "cmd args", sh -l -c "cmd args"
+ * Returns: { isWrapper: boolean, executableToCheck: string, shouldUseLogin: boolean, commandString?: string, argsAfterCommand?: number, flagsBeforeCommand?: string[], shell?: 'bash' | 'sh' }
  */
-export function parseBashWrapper(cmd: string, args: string[]): {
+export function parseShellWrapper(cmd: string, args: string[]): {
   isWrapper: boolean;
   executableToCheck: string;
   shouldUseLogin: boolean;
   commandString?: string;
   argsAfterCommand?: number;
   flagsBeforeCommand?: string[];
+  shell?: 'bash' | 'sh';
 } {
-  // Not a wrapper if cmd is not bash or no dash flags
-  if (cmd !== "bash" || args.length === 0) {
+  // Not a wrapper if cmd is not bash/sh or no dash flags
+  if ((cmd !== "bash" && cmd !== "sh") || args.length === 0) {
     return { isWrapper: false, executableToCheck: cmd, shouldUseLogin: false };
   }
 
@@ -168,6 +170,13 @@ export function parseBashWrapper(cmd: string, args: string[]): {
     shouldUseLogin: login,
     commandString: cmdStr,
     argsAfterCommand: cmdStrIndex + 1,  // Index after the command string for trailing args
-    flagsBeforeCommand  // User-supplied flags like --noprofile, --norc, etc.
+    flagsBeforeCommand,  // User-supplied flags like --noprofile, --norc, etc.
+    shell: cmd as 'bash' | 'sh'  // Track which shell is being used
   };
 }
+
+/**
+ * Legacy alias for parseShellWrapper - maintained for backward compatibility
+ * @deprecated Use parseShellWrapper instead
+ */
+export const parseBashWrapper = parseShellWrapper;

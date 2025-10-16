@@ -129,8 +129,8 @@ Unwrapped command: ${fullCommandForPolicy}`;
   let execArgs: string[];
 
   if (wrapperInfo.isWrapper) {
-    // Execute via bash with proper flags
-    execCmd = "/bin/bash";
+    // Execute via the appropriate shell (bash or sh)
+    execCmd = wrapperInfo.shell === 'sh' ? "/bin/sh" : "/bin/bash";
 
     // Start with user-supplied flags (like --noprofile, --norc, etc.)
     execArgs = [...(wrapperInfo.flagsBeforeCommand || [])];

@@ -302,7 +302,7 @@ describe('MCP Shell Server', () => {
     });
   });
 
-  describe('Bash Wrapper Handling', () => {
+  describe('Shell Wrapper Handling (Bash and Sh)', () => {
     describe('parseShellCommand', () => {
       it('should parse simple commands', () => {
         expect(parseShellCommand("git status")).toEqual(["git", "status"]);
@@ -532,6 +532,62 @@ describe('MCP Shell Server', () => {
       it('should handle pure -c with no other flags', () => {
         const result = parseBashWrapper("bash", ["-c", "echo hi"]);
         expect(result.flagsBeforeCommand).toEqual([]);  // Nothing to preserve
+      });
+    });
+
+    describe('Sh wrapper support', () => {
+      it('should detect sh as a wrapper command', () => {
+        const result = parseBashWrapper("sh", ["-c", "git status"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.executableToCheck).toBe("git");
+        expect(result.shell).toBe("sh");
+        expect(result.commandString).toBe("git status");
+      });
+
+      it('should parse sh -lc wrapper', () => {
+        const result = parseBashWrapper("sh", ["-lc", "aws s3 ls"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.executableToCheck).toBe("aws");
+        expect(result.shouldUseLogin).toBe(true);
+        expect(result.commandString).toBe("aws s3 ls");
+        expect(result.shell).toBe("sh");
+      });
+
+      it('should parse sh -l -c wrapper (separate flags)', () => {
+        const result = parseBashWrapper("sh", ["-l", "-c", "kubectl get pods"]);
+        expect(result.isWrapper).toBe(true);
+        expect(result.executableToCheck).toBe("kubectl");
+        expect(result.shouldUseLogin).toBe(true);
+        expect(result.commandString).toBe("kubectl get pods");
+        expect(result.shell).toBe("sh");
+      });
+
+      it('should reject sh -l without -c', () => {
+        expect(() => parseBashWrapper("sh", ["-l"])).toThrow("missing -c command string");
+      });
+
+      it('should reject sh -c without command string', () => {
+        expect(() => parseBashWrapper("sh", ["-c"])).toThrow("missing command string after -c");
+      });
+
+      it('should handle sh with complex commands', () => {
+        const result = parseBashWrapper("sh", ["-c", 'git commit -m "my message"']);
+        expect(result.isWrapper).toBe(true);
+        expect(result.executableToCheck).toBe("git");
+        expect(result.shell).toBe("sh");
+      });
+
+      it('should track shell type for bash vs sh', () => {
+        const bashResult = parseBashWrapper("bash", ["-c", "echo test"]);
+        expect(bashResult.shell).toBe("bash");
+
+        const shResult = parseBashWrapper("sh", ["-c", "echo test"]);
+        expect(shResult.shell).toBe("sh");
+      });
+
+      it('should allow sh -lc commands in policy', () => {
+        // sh -lc should be allowed by default config
+        expect(allowedCommand("sh -lc 'echo hello'", testPolicy)).toBe(true);
       });
     });
   });
