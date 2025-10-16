@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.0
+
+### Minor Changes
+
+- [#61](https://github.com/acartine/shemcp/pull/61) [`e57f605`](https://github.com/acartine/shemcp/commit/e57f605b0ba4bf5b9474b50e41906e2656f7f76c) Thanks [@acartine](https://github.com/acartine)! - Add implicit support for 'sh' shell commands alongside 'bash'. The shell_exec command now accepts both 'sh' and 'bash' commands with the same privileges and handling, improving portability and POSIX compatibility.
+
 ## 0.13.0
 
 ### Minor Changes
