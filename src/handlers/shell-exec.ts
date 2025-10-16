@@ -141,7 +141,13 @@ Unwrapped command: ${fullCommandForPolicy}`;
     }
 
     // Add our execution flags and command
-    execArgs.push("-o", "pipefail", "-o", "errexit", "-c", wrapperInfo.commandString!);
+    // Note: pipefail is bash-specific and not POSIX-compliant, so only add it for bash
+    if (wrapperInfo.shell === 'bash') {
+      execArgs.push("-o", "pipefail", "-o", "errexit", "-c", wrapperInfo.commandString!);
+    } else {
+      // For sh, only use errexit (which is POSIX-compliant)
+      execArgs.push("-o", "errexit", "-c", wrapperInfo.commandString!);
+    }
 
     // Append any trailing arguments after the command string (for $0, $1, etc.)
     // e.g., bash -c 'echo "$1"' -- foo  -> trailing args are ["--", "foo"]
