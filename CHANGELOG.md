@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.1
+
+### Patch Changes
+
+- [#64](https://github.com/acartine/shemcp/pull/64) [`08c989e`](https://github.com/acartine/shemcp/commit/08c989e20c0329a8ebfc3a06cc5d2770d0e03401) Thanks [@acartine](https://github.com/acartine)! - Fix npx execution by adding shebang line to dist/index.js. Without the shebang, npx attempts to execute the file as a shell script, causing "import: command not found" errors.
+
 ## 0.14.0
 
 ### Minor Changes
