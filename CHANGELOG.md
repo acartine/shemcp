@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.4
+
+### Patch Changes
+
+- [#72](https://github.com/acartine/shemcp/pull/72) [`29b3c24`](https://github.com/acartine/shemcp/commit/29b3c24b661327f87022559a156d0fab4a17055b) Thanks [@acartine](https://github.com/acartine)! - Fix server startup when executed via npx with symlinked binaries. Changed main module check from comparing file:// URLs to using fileURLToPath for proper path resolution, allowing the server to start correctly when run through npm bin symlinks.
+
 ## 0.14.3
 
 ### Patch Changes
