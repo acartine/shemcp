@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.2
+
+### Patch Changes
+
+- [#66](https://github.com/acartine/shemcp/pull/66) [`706992d`](https://github.com/acartine/shemcp/commit/706992dc233878616633080f9717fc14d73c4f3e) Thanks [@acartine](https://github.com/acartine)! - Fix npm publish workflow to build TypeScript before publishing. The publish step now runs npm ci and npm run build to ensure dist/index.js includes the shebang and all latest changes.
+
 ## 0.14.1
 
 ### Patch Changes

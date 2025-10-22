@@ -1,6 +1,6 @@
 {
   "name": "shemcp",
-  "version": "0.14.1",
+  "version": "0.14.2",
   "type": "module",
   "bin": {
     "shemcp": "dist/index.js"
