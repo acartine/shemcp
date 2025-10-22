@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.3
+
+### Patch Changes
+
+- [#69](https://github.com/acartine/shemcp/pull/69) [`20f097c`](https://github.com/acartine/shemcp/commit/20f097c683d80b8837e340e64407342745ab1147) Thanks [@acartine](https://github.com/acartine)! - Fix npm publish to include built files with shebang. Added prepack script that automatically builds TypeScript and runs tests before packaging, ensuring dist/index.js always has the shebang line needed for npx execution.
+
 ## 0.14.2
 
 ### Patch Changes
