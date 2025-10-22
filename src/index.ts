@@ -7,6 +7,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { realpathSync } from "node:fs";
 const require = createRequire(import.meta.url);
 // Load package.json without using JSON import attributes (Node 18 compatible)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -120,7 +121,8 @@ export async function startServer() {
 }
 
 // Only start if this is the main module
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// Resolve symlinks in argv[1] to handle npx bin symlinks
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   let serverInstance: { server: typeof server; transport: StdioServerTransport } | null = null;
 
   // Track if we're already shutting down
