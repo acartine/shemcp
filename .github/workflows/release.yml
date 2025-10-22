@@ -45,7 +45,10 @@ jobs:
         id: changesets
         uses: changesets/action@v1
         with:
-          publish: npm publish --provenance --access public
+          publish: |
+            npm ci
+            npm run build
+            npm publish --provenance --access public
           title: "Release: Update versions and publish to npm"
           commit: "chore: release packages"
         env:
