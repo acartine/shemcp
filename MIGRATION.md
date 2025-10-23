@@ -73,8 +73,8 @@ If you have existing configuration files:
 # In your project directory
 cd /path/to/my-project
 
-# Launch Claude with MCP server (automatically uses current directory as root)
-claude mcp add shell -- node /path/to/shemcp/dist/index.js
+# Add the MCP server using npx (recommended)
+claude mcp add shell -- npx -y shemcp@latest
 
 # Now all shell commands are restricted to /path/to/my-project and subdirectories
 ```
