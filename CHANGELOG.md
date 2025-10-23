@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.6
+
+### Patch Changes
+
+- [#76](https://github.com/acartine/shemcp/pull/76) [`cc660dd`](https://github.com/acartine/shemcp/commit/cc660dd4118fd8a56cdf6ef21178b94c4467f1fa) Thanks [@acartine](https://github.com/acartine)! - Update documentation to recommend npx -y shemcp@latest for easier setup. Simplified Quick Start section, clarified that configuration files are optional, and reorganized docs to emphasize the recommended npx approach.
+
 ## 0.14.5
 
 ### Patch Changes
