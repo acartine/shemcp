@@ -188,54 +188,13 @@ Ask your MCP client to call these tools with the following inputs:
 
 ## Quick Start
 
-### 1) Install (npm)
+### 1. Setup for Claude Code
 
-Global (useful if you want the CLI available everywhere):
-
-```bash
-npm install -g shemcp
-```
-
-Project-local (dev dependency):
+Add the MCP server using Claude Code's CLI with npx (recommended):
 
 ```bash
-npm install -D shemcp
-```
-
-From source (optional, for contributors):
-
-```bash
-git clone https://github.com/acartine/shemcp.git
-cd shemcp
-npm install
-npm run build
-```
-
-### 2. Configuration
-
-Create your configuration file:
-
-```bash
-# Create config directory
-mkdir -p ~/.config/shemcp
-
-# Copy example config and customize
-cp config.example.toml ~/.config/shemcp/config.toml
-
-# Edit the config to match your needs
-nano ~/.config/shemcp/config.toml
-```
-
-### 3. Setup for Claude Code
-
-Add the MCP server using Claude Code's CLI:
-
-```bash
-# Navigate to your shemcp directory
-cd /path/to/shemcp
-
-# Add the shell MCP server to Claude Code
-claude mcp add shell -- node /absolute/path/to/shemcp/dist/index.js
+# Add the shell MCP server to Claude Code (uses latest version)
+claude mcp add shell -- npx -y shemcp@latest
 
 # Verify it was added successfully
 claude mcp list
@@ -244,24 +203,24 @@ claude mcp list
 **Alternative scopes:**
 ```bash
 # Add for current project only (default)
-claude mcp add shell -- node /absolute/path/to/shemcp/dist/index.js
+claude mcp add shell -- npx -y shemcp@latest
 
 # Add for current user (available in all projects)
-claude mcp add --scope user shell -- node /absolute/path/to/shemcp/dist/index.js
+claude mcp add --scope user shell -- npx -y shemcp@latest
 
-# Add for project team (creates .mcp.json in project root)  
-claude mcp add --scope project shell -- node /absolute/path/to/shemcp/dist/index.js
+# Add for project team (creates .mcp.json in project root)
+claude mcp add --scope project shell -- npx -y shemcp@latest
 ```
 
-### 4. Setup for Other MCP Clients
+### 2. Setup for Other MCP Clients
 
 **For Cursor/VS Code with MCP:**
 ```json
 {
   "mcp.servers": {
     "shell": {
-      "command": "node",
-      "args": ["/absolute/path/to/shemcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "shemcp@latest"],
       "env": {}
     }
   }
@@ -269,16 +228,56 @@ claude mcp add --scope project shell -- node /absolute/path/to/shemcp/dist/index
 ```
 
 **For Desktop MCP Clients:**
-- **Command**: `node`
-- **Arguments**: `["/absolute/path/to/shemcp/dist/index.js"]`
-- **Working Directory**: `/path/to/shemcp`
+- **Command**: `npx`
+- **Arguments**: `["-y", "shemcp@latest"]`
+
+### 3. Optional: Custom Configuration
+
+The server works out of the box with sensible defaults. If you need to customize the configuration:
+
+```bash
+# Create config directory
+mkdir -p ~/.config/shemcp
+
+# Download and customize the example config
+curl -o ~/.config/shemcp/config.toml https://raw.githubusercontent.com/acartine/shemcp/main/config.example.toml
+
+# Edit the config to match your needs
+nano ~/.config/shemcp/config.toml
+```
+
+### 4. Alternative: Install Globally (Optional)
+
+If you prefer to install shemcp globally instead of using npx:
+
+```bash
+# Global installation
+npm install -g shemcp
+
+# Then use direct command in MCP config
+claude mcp add shell -- shemcp
+```
+
+**For development from source:**
+
+```bash
+git clone https://github.com/acartine/shemcp.git
+cd shemcp
+npm install
+npm run build
+
+# Add local version to Claude Code
+claude mcp add shell -- node /absolute/path/to/shemcp/dist/index.js
+```
 
 ## Configuration
 
-The server loads configuration from:
+The server works with sensible built-in defaults. Configuration files are **optional** and only needed for customization.
+
+If present, configuration is loaded from (in priority order):
 1. `~/.config/shemcp/config.toml` (user config - highest priority)
 2. `/etc/shemcp/config.toml` (system config - lower priority)
-3. Built-in defaults (fallback)
+3. Built-in defaults (always used as fallback)
 
 ### Configuration Structure
 
@@ -471,18 +470,15 @@ Run tests with: `npm test`
 - Ensure the directory exists and is accessible.
 
 **Server not connecting:**
-- Verify the absolute path to `dist/index.js` in your MCP client config
-- Check that the server was built with `npm run build`
+- Verify you're using `npx -y shemcp@latest` in your MCP client config
+- If using a local installation, check that the server was built with `npm run build`
 - Look for error messages in the MCP client logs
+- Check the debug log at `~/.shemcp/debug.log`
 
 ### Debug Configuration
 
 To see your current configuration:
 ```bash
-# Check which config files exist
-ls -la ~/.config/shemcp/config.toml
-ls -la /etc/shemcp/config.toml
-
 # List Claude Code MCP servers
 claude mcp list
 
@@ -491,6 +487,10 @@ claude mcp get shell
 
 # Remove server if needed
 claude mcp remove shell
+
+# Check which config files exist (optional - only if you created custom config)
+ls -la ~/.config/shemcp/config.toml
+ls -la /etc/shemcp/config.toml
 ```
 
 ## License
