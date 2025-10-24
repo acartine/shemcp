@@ -26,7 +26,8 @@ export async function execWithPagination(
   maxBytes: number,
   policy: Policy,
   pagination?: PaginationConfig,
-  onLargeOutput: LargeOutputBehavior = "spill"
+  onLargeOutput: LargeOutputBehavior = "spill",
+  additionalEnv?: Record<string, string>
 ): Promise<{
   exitCode: number;
   signal: NodeJS.Signals | null;
@@ -41,7 +42,11 @@ export async function execWithPagination(
   lineCount: number;
   stderrCount: number;
 }> {
-  const child = spawn(cmd, args, { cwd, env: filteredEnv(policy), stdio: ["ignore", "pipe", "pipe"] });
+  // Merge additional env vars with filtered env from policy
+  const env = additionalEnv
+    ? { ...filteredEnv(policy), ...additionalEnv }
+    : filteredEnv(policy);
+  const child = spawn(cmd, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
 
   // Parse pagination config
   const requestedLimitBytes = pagination?.limit_bytes ?? DEFAULT_PAGE_LIMIT_BYTES;
