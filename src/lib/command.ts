@@ -52,6 +52,23 @@ export function stripEnvPrefix(cmd: string, args: string[]): {
   return { envVars, cmd: actualCmd, args: actualArgs };
 }
 
+/**
+ * Parse environment variable assignments from KEY=value format into an object
+ * e.g., ["FOO=bar", "BAZ=qux"] -> { FOO: "bar", BAZ: "qux" }
+ */
+export function parseEnvVars(envVars: string[]): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const envVar of envVars) {
+    const eqIndex = envVar.indexOf('=');
+    if (eqIndex > 0) {
+      const key = envVar.substring(0, eqIndex);
+      const value = envVar.substring(eqIndex + 1);
+      env[key] = value;
+    }
+  }
+  return env;
+}
+
 export function buildCmdLine(cmd: string, args: string[]): string {
   const joined = [cmd, ...args].join(" ").trim();
   return joined;

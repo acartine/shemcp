@@ -1,7 +1,7 @@
 import { resolve, isAbsolute as pathIsAbsolute } from "node:path";
 import type { Policy } from "../lib/policy.js";
 import { ensureCwd, checkCommandPolicy, getEffectiveLimits } from "../lib/policy.js";
-import { buildCmdLine, parseBashWrapper, parseShellCommand, stripEnvPrefix } from "../lib/command.js";
+import { buildCmdLine, parseBashWrapper, parseShellCommand, stripEnvPrefix, parseEnvVars } from "../lib/command.js";
 import {
   type PaginationConfig,
   type LargeOutputBehavior,
@@ -158,13 +158,20 @@ Unwrapped command: ${fullCommandForPolicy}`;
       execArgs.push("-l");
     }
 
+    // Prepend env vars to the command string if any
+    // e.g., "FOO=bar npm run test" becomes "FOO=bar npm run test" in the shell
+    let commandString = wrapperInfo.commandString!;
+    if (envVars.length > 0) {
+      commandString = envVars.join(" ") + " " + commandString;
+    }
+
     // Add our execution flags and command
     // Note: pipefail is bash-specific and not POSIX-compliant, so only add it for bash
     if (wrapperInfo.shell === 'bash') {
-      execArgs.push("-o", "pipefail", "-o", "errexit", "-c", wrapperInfo.commandString!);
+      execArgs.push("-o", "pipefail", "-o", "errexit", "-c", commandString);
     } else {
       // For sh, use the portable short form -e instead of -o errexit (POSIX-compliant)
-      execArgs.push("-e", "-c", wrapperInfo.commandString!);
+      execArgs.push("-e", "-c", commandString);
     }
 
     // Append any trailing arguments after the command string (for $0, $1, etc.)
@@ -180,23 +187,12 @@ Unwrapped command: ${fullCommandForPolicy}`;
     }
   } else {
     // Direct execution (no wrapper)
-    // Prepend environment variables to the command
-    if (envVars.length > 0) {
-      const firstEnvVar = envVars[0];
-      // Note: This check is defensive; stripEnvPrefix guarantees envVars[0] exists when length > 0
-      if (!firstEnvVar) {
-        return {
-          content: [{ type: "text", text: "Error: Invalid environment variable" }],
-          isError: true,
-        };
-      }
-      execCmd = firstEnvVar;
-      execArgs = [...envVars.slice(1), cmdWithoutEnv, ...argsWithoutEnv];
-    } else {
-      execCmd = cmdWithoutEnv;
-      execArgs = argsWithoutEnv;
-    }
+    execCmd = cmdWithoutEnv;
+    execArgs = argsWithoutEnv;
   }
+
+  // Parse env vars from KEY=value format to pass to spawn
+  const additionalEnv = envVars.length > 0 ? parseEnvVars(envVars) : undefined;
 
   const res = await execWithPagination(
     execCmd,
@@ -206,7 +202,8 @@ Unwrapped command: ${fullCommandForPolicy}`;
     effectiveMaxBytes,
     policy,
     pagination,
-    onLargeOutput
+    onLargeOutput,
+    additionalEnv
   );
 
   // Clean up spill file after response if not needed for pagination
