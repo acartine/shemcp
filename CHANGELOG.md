@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.0
+
+### Minor Changes
+
+- [#79](https://github.com/acartine/shemcp/pull/79) [`5bbcb97`](https://github.com/acartine/shemcp/commit/5bbcb977ce9c50cf71dcf39024f480c0ad25f032) Thanks [@acartine](https://github.com/acartine)! - Add support for environment variable prefixes in shell commands. Commands like `FOO=bar npm run test` and `FOO=bar bash -c "echo $FOO"` now work correctly, with env vars properly passed to executed processes. Fixes #78.
+
 ## 0.14.6
 
 ### Patch Changes
