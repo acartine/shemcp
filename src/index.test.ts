@@ -14,7 +14,8 @@ import {
   setConfigForTesting,
   getEffectiveLimits,
   parseBashWrapper,
-  parseShellCommand
+  parseShellCommand,
+  stripEnvPrefix
 } from './index.js';
 import { DEFAULT_CONFIG } from './config/schema.js';
 import type { Policy } from './index.js';
@@ -329,6 +330,73 @@ describe('MCP Shell Server', () => {
       });
     });
 
+    describe('stripEnvPrefix', () => {
+      it('should handle commands without env var prefixes', () => {
+        const result = stripEnvPrefix("npm", ["run", "test"]);
+        expect(result.envVars).toEqual([]);
+        expect(result.cmd).toBe("npm");
+        expect(result.args).toEqual(["run", "test"]);
+      });
+
+      it('should strip single env var prefix', () => {
+        const result = stripEnvPrefix("FOO=bar", ["npm", "run", "test"]);
+        expect(result.envVars).toEqual(["FOO=bar"]);
+        expect(result.cmd).toBe("npm");
+        expect(result.args).toEqual(["run", "test"]);
+      });
+
+      it('should strip multiple env var prefixes', () => {
+        const result = stripEnvPrefix("FOO=bar", ["BAR=baz", "QUX=qux", "npm", "run", "test"]);
+        expect(result.envVars).toEqual(["FOO=bar", "BAR=baz", "QUX=qux"]);
+        expect(result.cmd).toBe("npm");
+        expect(result.args).toEqual(["run", "test"]);
+      });
+
+      it('should handle env vars with bash command', () => {
+        const result = stripEnvPrefix("FOO=bar", ["bash", "-c", "npm run test"]);
+        expect(result.envVars).toEqual(["FOO=bar"]);
+        expect(result.cmd).toBe("bash");
+        expect(result.args).toEqual(["-c", "npm run test"]);
+      });
+
+      it('should handle env vars with sh command', () => {
+        const result = stripEnvPrefix("FOO=bar", ["BAR=baz", "sh", "-c", "echo $FOO"]);
+        expect(result.envVars).toEqual(["FOO=bar", "BAR=baz"]);
+        expect(result.cmd).toBe("sh");
+        expect(result.args).toEqual(["-c", "echo $FOO"]);
+      });
+
+      it('should reject when only env vars are provided (no command)', () => {
+        expect(() => stripEnvPrefix("FOO=bar", ["BAR=baz"])).toThrow("No command found after environment variable assignments");
+      });
+
+      it('should reject when cmd is only an env var (no args)', () => {
+        expect(() => stripEnvPrefix("FOO=bar", [])).toThrow("No command found after environment variable assignments");
+      });
+
+      it('should not treat flags as env vars', () => {
+        // Flags (starting with -) should not be treated as env vars
+        const result = stripEnvPrefix("npm", ["--flag=value", "run", "test"]);
+        expect(result.envVars).toEqual([]);
+        expect(result.cmd).toBe("npm");
+        expect(result.args).toEqual(["--flag=value", "run", "test"]);
+      });
+
+      it('should handle complex env var values', () => {
+        const result = stripEnvPrefix("PATH=/usr/bin:/bin", ["NODE_ENV=production", "npm", "start"]);
+        expect(result.envVars).toEqual(["PATH=/usr/bin:/bin", "NODE_ENV=production"]);
+        expect(result.cmd).toBe("npm");
+        expect(result.args).toEqual(["start"]);
+      });
+
+      it('should work with commands that have no args', () => {
+        const result = stripEnvPrefix("FOO=bar", ["ls"]);
+        expect(result.envVars).toEqual(["FOO=bar"]);
+        expect(result.cmd).toBe("ls");
+        expect(result.args).toEqual([]);
+      });
+    });
+
     describe('parseBashWrapper', () => {
       it('should detect non-wrapper commands', () => {
         const result = parseBashWrapper("git", ["status"]);
@@ -414,6 +482,80 @@ describe('MCP Shell Server', () => {
 
         // Should be allowed (not pushing to main/master)
         expect(allowedCommand(fullCmd, testPolicy)).toBe(true);
+      });
+    });
+
+    describe('Environment variable prefix handling', () => {
+      it('should validate command after stripping env vars for simple commands', () => {
+        // Strip env vars first
+        const stripped = stripEnvPrefix("FOO=bar", ["git", "status"]);
+        expect(stripped.cmd).toBe("git");
+        expect(stripped.args).toEqual(["status"]);
+
+        // Validation should run on the actual command
+        const fullCmd = buildCmdLine(stripped.cmd, stripped.args);
+        expect(fullCmd).toBe("git status");
+        expect(allowedCommand(fullCmd, testPolicy)).toBe(true);
+      });
+
+      it('should validate bash wrapper after stripping env vars', () => {
+        // Strip env vars first
+        const stripped = stripEnvPrefix("FOO=bar", ["BAR=baz", "bash", "-c", "git status"]);
+        expect(stripped.cmd).toBe("bash");
+        expect(stripped.args).toEqual(["-c", "git status"]);
+
+        // Parse the bash wrapper
+        const wrapperResult = parseBashWrapper(stripped.cmd, stripped.args);
+        expect(wrapperResult.isWrapper).toBe(true);
+        expect(wrapperResult.executableToCheck).toBe("git");
+
+        // Validation should run on the unwrapped command
+        const tokens = parseShellCommand(wrapperResult.commandString!);
+        const fullCmd = tokens.join(" ");
+        expect(fullCmd).toBe("git status");
+        expect(allowedCommand(fullCmd, testPolicy)).toBe(true);
+      });
+
+      it('should validate sh wrapper after stripping env vars', () => {
+        // Strip env vars first
+        const stripped = stripEnvPrefix("FOO=bar", ["sh", "-c", "echo test"]);
+        expect(stripped.cmd).toBe("sh");
+        expect(stripped.args).toEqual(["-c", "echo test"]);
+
+        // Parse the sh wrapper
+        const wrapperResult = parseBashWrapper(stripped.cmd, stripped.args);
+        expect(wrapperResult.isWrapper).toBe(true);
+        expect(wrapperResult.shell).toBe("sh");
+        expect(wrapperResult.executableToCheck).toBe("echo");
+      });
+
+      it('should correctly handle env vars with denied commands', () => {
+        // Strip env vars first
+        const stripped = stripEnvPrefix("FOO=bar", ["git", "push", "origin", "main"]);
+        expect(stripped.cmd).toBe("git");
+        expect(stripped.args).toEqual(["push", "origin", "main"]);
+
+        // Validation should run on the actual command and deny it
+        const fullCmd = buildCmdLine(stripped.cmd, stripped.args);
+        expect(fullCmd).toBe("git push origin main");
+        expect(allowedCommand(fullCmd, testPolicy)).toBe(false);
+      });
+
+      it('should correctly handle env vars with bash wrapper containing denied command', () => {
+        // Strip env vars first
+        const stripped = stripEnvPrefix("FOO=bar", ["bash", "-c", "git push origin main"]);
+        expect(stripped.cmd).toBe("bash");
+        expect(stripped.args).toEqual(["-c", "git push origin main"]);
+
+        // Parse the bash wrapper
+        const wrapperResult = parseBashWrapper(stripped.cmd, stripped.args);
+        expect(wrapperResult.isWrapper).toBe(true);
+
+        // Validation should run on the unwrapped command and deny it
+        const tokens = parseShellCommand(wrapperResult.commandString!);
+        const fullCmd = tokens.join(" ");
+        expect(fullCmd).toBe("git push origin main");
+        expect(allowedCommand(fullCmd, testPolicy)).toBe(false);
       });
     });
 

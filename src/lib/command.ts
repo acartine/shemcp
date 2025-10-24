@@ -1,5 +1,52 @@
 /** ---------- Command Line Utilities ---------- */
 
+/**
+ * Strip environment variable prefixes from command and args
+ * e.g., ["FOO=bar", "npm", "run", "test"] -> { envVars: ["FOO=bar"], cmd: "npm", args: ["run", "test"] }
+ * e.g., ["npm", "run", "test"] -> { envVars: [], cmd: "npm", args: ["run", "test"] }
+ */
+export function stripEnvPrefix(cmd: string, args: string[]): {
+  envVars: string[];
+  cmd: string;
+  args: string[];
+} {
+  const envVars: string[] = [];
+  let actualCmd = cmd;
+  let actualArgs = args;
+
+  // Check if cmd is an env var (contains = and doesn't start with -)
+  if (cmd.includes('=') && !cmd.startsWith('-')) {
+    // Cmd is an env var, so we need to find the actual command in args
+    envVars.push(cmd);
+
+    // Find where the actual command starts (first arg that doesn't contain =)
+    let cmdIndex = 0;
+    while (cmdIndex < args.length) {
+      const arg = args[cmdIndex];
+      if (!arg || !arg.includes('=') || arg.startsWith('-')) {
+        break;
+      }
+      envVars.push(arg);
+      cmdIndex++;
+    }
+
+    if (cmdIndex >= args.length) {
+      // All args were env vars, no actual command
+      throw new Error("No command found after environment variable assignments");
+    }
+
+    const foundCmd = args[cmdIndex];
+    if (!foundCmd) {
+      throw new Error("No command found after environment variable assignments");
+    }
+
+    actualCmd = foundCmd;
+    actualArgs = args.slice(cmdIndex + 1);
+  }
+
+  return { envVars, cmd: actualCmd, args: actualArgs };
+}
+
 export function buildCmdLine(cmd: string, args: string[]): string {
   const joined = [cmd, ...args].join(" ").trim();
   return joined;

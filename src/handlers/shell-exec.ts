@@ -1,7 +1,7 @@
 import { resolve, isAbsolute as pathIsAbsolute } from "node:path";
 import type { Policy } from "../lib/policy.js";
 import { ensureCwd, checkCommandPolicy, getEffectiveLimits } from "../lib/policy.js";
-import { buildCmdLine, parseBashWrapper, parseShellCommand } from "../lib/command.js";
+import { buildCmdLine, parseBashWrapper, parseShellCommand, stripEnvPrefix } from "../lib/command.js";
 import {
   type PaginationConfig,
   type LargeOutputBehavior,
@@ -30,10 +30,28 @@ export async function handleShellExec(args: any, policy: Policy) {
   const resolvedCwd = resolve(policy.rootDirectory, input.cwd || ".");
   ensureCwd(resolvedCwd, policy);
 
+  // Strip environment variable prefixes before parsing
+  // e.g., FOO=bar npm run test -> { envVars: ["FOO=bar"], cmd: "npm", args: ["run", "test"] }
+  let envVars: string[] = [];
+  let cmdWithoutEnv: string;
+  let argsWithoutEnv: string[];
+  try {
+    const stripped = stripEnvPrefix(input.cmd, input.args || []);
+    envVars = stripped.envVars;
+    cmdWithoutEnv = stripped.cmd;
+    argsWithoutEnv = stripped.args;
+  } catch (error: any) {
+    return {
+      content: [{ type: "text", text: `Error: ${error.message}` }],
+      isError: true,
+    };
+  }
+
   // Parse bash wrapper to extract underlying command for allowlist checking
+  // Use the command WITHOUT env vars for parsing and validation
   let wrapperInfo: ReturnType<typeof parseBashWrapper>;
   try {
-    wrapperInfo = parseBashWrapper(input.cmd, input.args || []);
+    wrapperInfo = parseBashWrapper(cmdWithoutEnv, argsWithoutEnv);
   } catch (error: any) {
     return {
       content: [{ type: "text", text: `Error: ${error.message}` }],
@@ -43,15 +61,15 @@ export async function handleShellExec(args: any, policy: Policy) {
 
   // Check allowlist against the full underlying command (not just the executable)
   // For wrappers, reconstruct the full command from the parsed tokens
-  // For non-wrappers, use the original cmd and args
+  // For non-wrappers, use the cmd and args WITHOUT env vars
   let fullCommandForPolicy: string;
   if (wrapperInfo.isWrapper) {
     // Use the tokenized command string to rebuild the full command for policy checking
     const tokens = parseShellCommand(wrapperInfo.commandString!);
     fullCommandForPolicy = tokens.join(" ");
   } else {
-    // Direct command - use original cmd and args
-    fullCommandForPolicy = buildCmdLine(input.cmd, input.args || []);
+    // Direct command - use cmd and args WITHOUT env var prefix
+    fullCommandForPolicy = buildCmdLine(cmdWithoutEnv, argsWithoutEnv);
   }
 
   // Check policy with detailed diagnostics
@@ -151,14 +169,32 @@ Unwrapped command: ${fullCommandForPolicy}`;
 
     // Append any trailing arguments after the command string (for $0, $1, etc.)
     // e.g., bash -c 'echo "$1"' -- foo  -> trailing args are ["--", "foo"]
-    if (wrapperInfo.argsAfterCommand !== undefined && wrapperInfo.argsAfterCommand < input.args.length) {
-      const trailingArgs = input.args.slice(wrapperInfo.argsAfterCommand);
+    // Need to calculate the correct offset in the original args array
+    // argsAfterCommand is relative to argsWithoutEnv, so add the envVars length
+    const originalArgsAfterCommand = wrapperInfo.argsAfterCommand !== undefined
+      ? wrapperInfo.argsAfterCommand + envVars.length
+      : undefined;
+    if (originalArgsAfterCommand !== undefined && originalArgsAfterCommand < input.args.length) {
+      const trailingArgs = input.args.slice(originalArgsAfterCommand);
       execArgs.push(...trailingArgs);
     }
   } else {
     // Direct execution (no wrapper)
-    execCmd = input.cmd;
-    execArgs = input.args || [];
+    // Prepend environment variables to the command
+    if (envVars.length > 0) {
+      const firstEnvVar = envVars[0];
+      if (!firstEnvVar) {
+        return {
+          content: [{ type: "text", text: "Error: Invalid environment variable" }],
+          isError: true,
+        };
+      }
+      execCmd = firstEnvVar;
+      execArgs = [...envVars.slice(1), cmdWithoutEnv, ...argsWithoutEnv];
+    } else {
+      execCmd = cmdWithoutEnv;
+      execArgs = argsWithoutEnv;
+    }
   }
 
   const res = await execWithPagination(
