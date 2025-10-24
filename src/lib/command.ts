@@ -4,6 +4,11 @@
  * Strip environment variable prefixes from command and args
  * e.g., ["FOO=bar", "npm", "run", "test"] -> { envVars: ["FOO=bar"], cmd: "npm", args: ["run", "test"] }
  * e.g., ["npm", "run", "test"] -> { envVars: [], cmd: "npm", args: ["run", "test"] }
+ *
+ * @example
+ * // Flags with = are NOT treated as env vars
+ * stripEnvPrefix("npm", ["--flag=value", "run", "test"])
+ * // Returns: { envVars: [], cmd: "npm", args: ["--flag=value", "run", "test"] }
  */
 export function stripEnvPrefix(cmd: string, args: string[]): {
   envVars: string[];

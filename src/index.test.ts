@@ -331,69 +331,75 @@ describe('MCP Shell Server', () => {
     });
 
     describe('stripEnvPrefix', () => {
-      it('should handle commands without env var prefixes', () => {
-        const result = stripEnvPrefix("npm", ["run", "test"]);
-        expect(result.envVars).toEqual([]);
-        expect(result.cmd).toBe("npm");
-        expect(result.args).toEqual(["run", "test"]);
+      describe('basic functionality', () => {
+        it('should handle commands without env var prefixes', () => {
+          const result = stripEnvPrefix("npm", ["run", "test"]);
+          expect(result.envVars).toEqual([]);
+          expect(result.cmd).toBe("npm");
+          expect(result.args).toEqual(["run", "test"]);
+        });
+
+        it('should strip single env var prefix', () => {
+          const result = stripEnvPrefix("FOO=bar", ["npm", "run", "test"]);
+          expect(result.envVars).toEqual(["FOO=bar"]);
+          expect(result.cmd).toBe("npm");
+          expect(result.args).toEqual(["run", "test"]);
+        });
+
+        it('should strip multiple env var prefixes', () => {
+          const result = stripEnvPrefix("FOO=bar", ["BAR=baz", "QUX=qux", "npm", "run", "test"]);
+          expect(result.envVars).toEqual(["FOO=bar", "BAR=baz", "QUX=qux"]);
+          expect(result.cmd).toBe("npm");
+          expect(result.args).toEqual(["run", "test"]);
+        });
+
+        it('should handle complex env var values', () => {
+          const result = stripEnvPrefix("PATH=/usr/bin:/bin", ["NODE_ENV=production", "npm", "start"]);
+          expect(result.envVars).toEqual(["PATH=/usr/bin:/bin", "NODE_ENV=production"]);
+          expect(result.cmd).toBe("npm");
+          expect(result.args).toEqual(["start"]);
+        });
+
+        it('should work with commands that have no args', () => {
+          const result = stripEnvPrefix("FOO=bar", ["ls"]);
+          expect(result.envVars).toEqual(["FOO=bar"]);
+          expect(result.cmd).toBe("ls");
+          expect(result.args).toEqual([]);
+        });
       });
 
-      it('should strip single env var prefix', () => {
-        const result = stripEnvPrefix("FOO=bar", ["npm", "run", "test"]);
-        expect(result.envVars).toEqual(["FOO=bar"]);
-        expect(result.cmd).toBe("npm");
-        expect(result.args).toEqual(["run", "test"]);
+      describe('shell wrapper integration', () => {
+        it('should handle env vars with bash command', () => {
+          const result = stripEnvPrefix("FOO=bar", ["bash", "-c", "npm run test"]);
+          expect(result.envVars).toEqual(["FOO=bar"]);
+          expect(result.cmd).toBe("bash");
+          expect(result.args).toEqual(["-c", "npm run test"]);
+        });
+
+        it('should handle env vars with sh command', () => {
+          const result = stripEnvPrefix("FOO=bar", ["BAR=baz", "sh", "-c", "echo $FOO"]);
+          expect(result.envVars).toEqual(["FOO=bar", "BAR=baz"]);
+          expect(result.cmd).toBe("sh");
+          expect(result.args).toEqual(["-c", "echo $FOO"]);
+        });
       });
 
-      it('should strip multiple env var prefixes', () => {
-        const result = stripEnvPrefix("FOO=bar", ["BAR=baz", "QUX=qux", "npm", "run", "test"]);
-        expect(result.envVars).toEqual(["FOO=bar", "BAR=baz", "QUX=qux"]);
-        expect(result.cmd).toBe("npm");
-        expect(result.args).toEqual(["run", "test"]);
-      });
+      describe('error cases', () => {
+        it('should reject when only env vars are provided (no command)', () => {
+          expect(() => stripEnvPrefix("FOO=bar", ["BAR=baz"])).toThrow("No command found after environment variable assignments");
+        });
 
-      it('should handle env vars with bash command', () => {
-        const result = stripEnvPrefix("FOO=bar", ["bash", "-c", "npm run test"]);
-        expect(result.envVars).toEqual(["FOO=bar"]);
-        expect(result.cmd).toBe("bash");
-        expect(result.args).toEqual(["-c", "npm run test"]);
-      });
+        it('should reject when cmd is only an env var (no args)', () => {
+          expect(() => stripEnvPrefix("FOO=bar", [])).toThrow("No command found after environment variable assignments");
+        });
 
-      it('should handle env vars with sh command', () => {
-        const result = stripEnvPrefix("FOO=bar", ["BAR=baz", "sh", "-c", "echo $FOO"]);
-        expect(result.envVars).toEqual(["FOO=bar", "BAR=baz"]);
-        expect(result.cmd).toBe("sh");
-        expect(result.args).toEqual(["-c", "echo $FOO"]);
-      });
-
-      it('should reject when only env vars are provided (no command)', () => {
-        expect(() => stripEnvPrefix("FOO=bar", ["BAR=baz"])).toThrow("No command found after environment variable assignments");
-      });
-
-      it('should reject when cmd is only an env var (no args)', () => {
-        expect(() => stripEnvPrefix("FOO=bar", [])).toThrow("No command found after environment variable assignments");
-      });
-
-      it('should not treat flags as env vars', () => {
-        // Flags (starting with -) should not be treated as env vars
-        const result = stripEnvPrefix("npm", ["--flag=value", "run", "test"]);
-        expect(result.envVars).toEqual([]);
-        expect(result.cmd).toBe("npm");
-        expect(result.args).toEqual(["--flag=value", "run", "test"]);
-      });
-
-      it('should handle complex env var values', () => {
-        const result = stripEnvPrefix("PATH=/usr/bin:/bin", ["NODE_ENV=production", "npm", "start"]);
-        expect(result.envVars).toEqual(["PATH=/usr/bin:/bin", "NODE_ENV=production"]);
-        expect(result.cmd).toBe("npm");
-        expect(result.args).toEqual(["start"]);
-      });
-
-      it('should work with commands that have no args', () => {
-        const result = stripEnvPrefix("FOO=bar", ["ls"]);
-        expect(result.envVars).toEqual(["FOO=bar"]);
-        expect(result.cmd).toBe("ls");
-        expect(result.args).toEqual([]);
+        it('should not treat flags as env vars', () => {
+          // Flags (starting with -) should not be treated as env vars
+          const result = stripEnvPrefix("npm", ["--flag=value", "run", "test"]);
+          expect(result.envVars).toEqual([]);
+          expect(result.cmd).toBe("npm");
+          expect(result.args).toEqual(["--flag=value", "run", "test"]);
+        });
       });
     });
 

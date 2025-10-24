@@ -183,6 +183,7 @@ Unwrapped command: ${fullCommandForPolicy}`;
     // Prepend environment variables to the command
     if (envVars.length > 0) {
       const firstEnvVar = envVars[0];
+      // Note: This check is defensive; stripEnvPrefix guarantees envVars[0] exists when length > 0
       if (!firstEnvVar) {
         return {
           content: [{ type: "text", text: "Error: Invalid environment variable" }],
