@@ -67,6 +67,8 @@ let policy: Policy = createPolicyFromConfig(config);
 const derivedRoot = deriveSandboxRoot();
 policy.rootDirectory = derivedRoot;
 debugLog("Derived sandbox root", { derivedRoot });
+
+debugLog("Worktree detection", { enabled: policy.worktreeDetectionEnabled });
 const PKG_VERSION: string = (pkg as any).version ?? "0.0.0";
 debugLog("Config loaded", { configName: config.server.name, serverVersion: PKG_VERSION });
 

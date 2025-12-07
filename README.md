@@ -9,6 +9,7 @@ Independent agentic coding without handing over the keys to the castle.  Stop ge
 
 ## What's new
 
+- **Git Worktree Support**: Automatically detects and allows access to git worktrees created from the sandbox repository. Worktrees are validated via `git worktree list` and added to an allowlist for the session. Disable with `worktree_detection = false` in the `[security]` section of your config file.
 - **🆕 Pagination Support**: Added pagination and large output handling to `shell_exec` with configurable `limit_bytes`, `limit_lines`, and `on_large_output` modes
 - **🆕 Spill File Management**: Large outputs are automatically written to temporary files with `spill_uri` for safe, paginated reading
 - **🆕 New `read_file_chunk` Tool**: Read paginated data from spilled files using `cursor` and `limit_bytes` for safe streaming
@@ -44,6 +45,7 @@ You can explicitly override the root for special cases with SHEMCP_ROOT or MCP_S
 - **🔒 Command Allowlisting**: Only pre-approved commands can be executed
 - **🚫 Command Denylisting**: Explicitly block dangerous command patterns
 - **📁 Sandboxed to Project Root**: Commands run within the Git repository root by default (fallback to current working directory). Override with `SHEMCP_ROOT` or `MCP_SANDBOX_ROOT`.
+- **🌿 Git Worktree Support**: Automatically detects and allows access to git worktrees (sibling directories created via `git worktree add`)
 - **🛡️ Hardened Path Enforcement**: `cwd` must be relative; absolute paths are rejected. Realpath boundary checks prevent symlink escapes.
 - **🌍 Environment Filtering**: Only pass through safe environment variables
 - **⏱️ Resource Limits**: Configurable timeouts and output size caps
@@ -306,6 +308,7 @@ whitelist = ["PATH", "HOME", "USER", "LANG"]
 
 [security]
 require_secure_permissions = false
+worktree_detection = true  # Enable automatic git worktree detection
 ```
 
 See `config.example.toml` for a complete example with documentation.
@@ -429,6 +432,38 @@ npm run build
 # Development mode
 npm run dev
 ```
+
+## Git Worktree Support
+
+shemcp automatically supports git worktrees, which are commonly used for parallel development workflows. When an agent creates a worktree (e.g., `git worktree add ../repo-feature -b feature`), the worktree is created as a sibling directory outside the primary sandbox.
+
+### How it works
+
+1. When a path outside the sandbox is requested, shemcp checks if it matches the worktree naming pattern (sibling directory starting with the sandbox basename)
+2. If it matches, shemcp runs `git worktree list` to verify it's a legitimate worktree
+3. Verified worktrees are added to a session allowlist for efficient subsequent access
+4. The worktree list is cached for 60 seconds to minimize git command overhead
+
+### Example
+
+```
+/Users/user/myproject           # Primary sandbox (git root)
+/Users/user/myproject-feature   # Worktree - automatically allowed
+/Users/user/myproject-bugfix    # Worktree - automatically allowed
+/Users/user/other-project       # NOT allowed - different project
+```
+
+### Disabling Worktree Detection
+
+If you prefer stricter security and don't need worktree support, disable it in your config file:
+
+```toml
+# In ~/.config/shemcp/config.toml
+[security]
+worktree_detection = false
+```
+
+When disabled, only paths within the primary sandbox root are allowed.
 
 ## Security Considerations
 
