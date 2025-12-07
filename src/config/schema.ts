@@ -33,6 +33,7 @@ export const ConfigSchema = z.object({
   security: z.object({
     allow_runtime_policy_changes: z.boolean().default(true),
     require_secure_permissions: z.boolean().default(false),
+    worktree_detection: z.boolean().default(true),
   }).default({}),
 }).default({});
 
@@ -74,5 +75,6 @@ export const DEFAULT_CONFIG: Config = {
   security: {
     allow_runtime_policy_changes: true,
     require_secure_permissions: false,
+    worktree_detection: true,
   },
 };

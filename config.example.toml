@@ -24,10 +24,6 @@ allow = [
     "^aws(\\s|$)",
     "^az(\\s|$)",
     "^cat(\\s|$)",         # Display file contents
-<<<<<<< HEAD
-=======
-    "^cat(\\s|$)",         # Display file contents
->>>>>>> 9567ffa (Add per-request limit overrides and expand command list)
     "^cd(\\s|$)",
     "^cwd(\\s|$)",         # Change/query working directory (custom)
     "^curl(\\s|$)",        # HTTP client
@@ -103,3 +99,10 @@ allow_runtime_policy_changes = true
 
 # Whether to enforce secure file permissions on config files (600/644)
 require_secure_permissions = false
+
+# Whether to enable automatic git worktree detection.
+# When enabled, shemcp automatically detects and allows access to git worktrees
+# created from the sandbox repository (e.g., via `git worktree add`).
+# Worktrees are validated via `git worktree list` and added to an allowlist for the session.
+# Set to false for stricter security (only allow paths within the primary sandbox root).
+worktree_detection = true

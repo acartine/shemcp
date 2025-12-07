@@ -300,6 +300,34 @@ describe('MCP Shell Server', () => {
       expect(convertedPolicy.timeoutMs).toBe(testConfig.limits.timeout_seconds * 1000);
       expect(convertedPolicy.maxBytes).toBe(testConfig.limits.max_output_bytes);
       expect(convertedPolicy.envWhitelist).toEqual(testConfig.environment.whitelist);
+      // New worktree fields should be initialized
+      expect(convertedPolicy.allowedWorktrees).toBeInstanceOf(Set);
+      expect(convertedPolicy.allowedWorktrees.size).toBe(0);
+      expect(convertedPolicy.worktreeDetectionEnabled).toBe(true);
+    });
+
+    it('should respect worktree_detection config setting when false', () => {
+      const configWithWorktreeDisabled = {
+        ...DEFAULT_CONFIG,
+        security: {
+          ...DEFAULT_CONFIG.security,
+          worktree_detection: false,
+        },
+      };
+      const convertedPolicy = createPolicyFromConfig(configWithWorktreeDisabled);
+      expect(convertedPolicy.worktreeDetectionEnabled).toBe(false);
+    });
+
+    it('should respect worktree_detection config setting when true', () => {
+      const configWithWorktreeEnabled = {
+        ...DEFAULT_CONFIG,
+        security: {
+          ...DEFAULT_CONFIG.security,
+          worktree_detection: true,
+        },
+      };
+      const convertedPolicy = createPolicyFromConfig(configWithWorktreeEnabled);
+      expect(convertedPolicy.worktreeDetectionEnabled).toBe(true);
     });
   });
 
@@ -795,6 +823,8 @@ describe('MCP Shell Server', () => {
     it('should work with custom test policy', () => {
       const customPolicy: Policy = {
         rootDirectory: '/test',
+        allowedWorktrees: new Set<string>(),
+        worktreeDetectionEnabled: true,
         allow: [/^echo(\s|$)/i],
         deny: [/^echo secret/i],
         timeoutMs: 60000,

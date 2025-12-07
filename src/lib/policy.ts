@@ -1,10 +1,14 @@
 import { accessSync, constants, realpathSync } from "node:fs";
 import { resolve, relative as pathRelative, isAbsolute as pathIsAbsolute } from "node:path";
 import type { Config } from "../config/index.js";
+import { validateWorktreePath, isWithinAllowedWorktrees } from "./worktree.js";
+import { debugLog } from "./debug.js";
 
 /** ---------- Policy Types ---------- */
 export type Policy = {
   rootDirectory: string;   // single root directory that contains all allowed operations
+  allowedWorktrees: Set<string>;  // dynamically discovered worktrees (session-scoped)
+  worktreeDetectionEnabled: boolean;  // toggle for worktree detection feature
   allow: RegExp[];     // full command line allow list, e.g. /^git(\s|$)/, /^gh(\s|$)/
   deny: RegExp[];      // explicit denies, e.g. /^git\s+push(\s+.*)?\s+(origin\s+)?(main|master)(\s+.*)?$/i
   timeoutMs: number;   // hard cap per command
@@ -26,6 +30,8 @@ export const makeRegex = (s: string) => new RegExp(s, "i");
 export function createPolicyFromConfig(config: Config): Policy {
   return {
     rootDirectory: config.directories.root,
+    allowedWorktrees: new Set<string>(),
+    worktreeDetectionEnabled: config.security.worktree_detection,
     allow: config.commands.allow.map(makeRegex),
     deny: config.commands.deny.map(makeRegex),
     timeoutMs: config.limits.timeout_seconds * 1000,
@@ -89,22 +95,57 @@ export function filteredEnv(policy: Policy): NodeJS.ProcessEnv {
 }
 
 export function ensureCwd(cwd: string, policy: Policy) {
-  // 1) Check simple prefix boundary using resolved paths (works for non-existent paths)
   const normalizedCwd = resolve(cwd);
   const normalizedRoot = resolve(policy.rootDirectory);
-  const boundary = normalizedRoot === normalizedCwd || normalizedCwd.startsWith(normalizedRoot + (normalizedRoot.endsWith("/") ? "" : "/"));
-  if (!boundary) {
-    throw new Error(`cwd not allowed: ${cwd} (must be within ${policy.rootDirectory})`);
+
+  // 1) Check simple prefix boundary using resolved paths (works for non-existent paths)
+  const inPrimaryBoundary = normalizedRoot === normalizedCwd ||
+    normalizedCwd.startsWith(normalizedRoot + (normalizedRoot.endsWith("/") ? "" : "/"));
+
+  if (inPrimaryBoundary) {
+    // Within primary sandbox - use existing validation
+    validatePathAccessibility(cwd, normalizedRoot);
+    return;
   }
 
-  // 2) Ensure path exists and is accessible
-  try { accessSync(cwd, constants.R_OK | constants.X_OK); }
-  catch { throw new Error(`cwd not accessible: ${cwd}`); }
+  // 2) Check if already in allowed worktrees
+  if (isWithinAllowedWorktrees(normalizedCwd, policy.allowedWorktrees)) {
+    debugLog("Path is within allowed worktree", { cwd });
+    validatePathAccessibility(cwd, normalizedRoot);
+    return;
+  }
 
-  // 3) Mitigate symlink escapes: re-check boundary using real paths
+  // 3) Try worktree detection (if enabled)
+  if (policy.worktreeDetectionEnabled) {
+    const worktreeRoot = validateWorktreePath(normalizedCwd, normalizedRoot);
+    if (worktreeRoot) {
+      // Add to allowed worktrees for future requests
+      policy.allowedWorktrees.add(worktreeRoot);
+      debugLog("Added worktree to allowlist", { worktreeRoot, cwd });
+      validatePathAccessibility(cwd, worktreeRoot);
+      return;
+    }
+  }
+
+  // Path is not in primary sandbox and not a valid worktree
+  throw new Error(`cwd not allowed: ${cwd} (must be within ${policy.rootDirectory})`);
+}
+
+/**
+ * Validate that a path exists, is accessible, and doesn't escape via symlinks
+ */
+function validatePathAccessibility(cwd: string, boundaryRoot: string) {
+  // Ensure path exists and is accessible
+  try {
+    accessSync(cwd, constants.R_OK | constants.X_OK);
+  } catch {
+    throw new Error(`cwd not accessible: ${cwd}`);
+  }
+
+  // Mitigate symlink escapes: re-check boundary using real paths
   try {
     const realCwd = realpathSync(cwd);
-    const realRoot = realpathSync(policy.rootDirectory);
+    const realRoot = realpathSync(boundaryRoot);
     const rel = pathRelative(realRoot, realCwd);
     const within = rel === "" || (!rel.startsWith("..") && !pathIsAbsolute(rel));
     if (!within) {
