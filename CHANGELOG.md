@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.17.0
+
+### Minor Changes
+
+- [#81](https://github.com/acartine/shemcp/pull/81) [`078a4aa`](https://github.com/acartine/shemcp/commit/078a4aaabbaa9fcbcc7dd76299a24a9b91a28c24) Thanks [@acartine](https://github.com/acartine)! - Add git worktree support for parallel development workflows
+
+  - Automatically detect and allow access to git worktrees created from the sandbox repository
+  - Worktrees validated via `git worktree list` and added to session allowlist
+  - Worktree list cached for 60 seconds to minimize overhead
+  - New `worktree_detection` config option in `[security]` section (default: `true`)
+  - Set `worktree_detection = false` to disable for stricter security
+
 ## 0.15.0
 
 ### Minor Changes
