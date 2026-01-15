@@ -57,6 +57,7 @@ export const DEFAULT_CONFIG: Config = {
       "^jq(\\s|$)",
       "^aws(\\s|$)",
       "^az(\\s|$)",
+      "^zstd(\\s|$)",
       "^bash\\s+-lc\\s+",
       "^sh\\s+-lc\\s+",
     ],

@@ -46,3 +46,6 @@ temp/
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# misc
+.claude

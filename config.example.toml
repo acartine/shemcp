@@ -59,6 +59,7 @@ allow = [
     "^wget(\\s|$)",        # Web downloader
     "^yarn(\\s|$)",        # Yarn package manager
     "^zip(\\s|$)",
+    "^zstd(\\s|$)",        # Zstandard compression
 ]
 
 # Regular expressions for explicitly denied commands (checked after allow list)
