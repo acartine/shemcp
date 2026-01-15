@@ -170,9 +170,12 @@ describe('MCP Shell Server', () => {
       expect(execTool?.inputSchema.properties?.max_output_bytes).toBeDefined();
     });
 
-    it('should reject absolute cwd in shell_exec description', () => {
+    it('should describe cwd path options in shell_exec', () => {
       const execTool = tools.find(t => t.name === "shell_exec");
-      expect(execTool?.description?.toLowerCase()).toContain("relative");
+      const desc = execTool?.description?.toLowerCase();
+      expect(desc).toContain("relative");
+      expect(desc).toContain("absolute");
+      expect(desc).toContain("worktree");
     });
 
     it('should have read_file_chunk tool with proper schema', () => {

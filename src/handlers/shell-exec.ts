@@ -20,13 +20,9 @@ export async function handleShellExec(args: any, policy: Policy) {
     };
   }
 
-  // Enforce relative cwd only; default to sandbox root
-  if (input.cwd && pathIsAbsolute(input.cwd)) {
-    return {
-      content: [{ type: "text", text: `Error: cwd must be a relative path within sandbox root. Received absolute: ${input.cwd}. Sandbox root: ${policy.rootDirectory}` }],
-      isError: true,
-    };
-  }
+  // Resolve cwd: relative paths are resolved against sandbox root,
+  // absolute paths are used directly but must pass ensureCwd validation
+  // (which checks sandbox boundaries and valid worktrees)
   const resolvedCwd = resolve(policy.rootDirectory, input.cwd || ".");
   ensureCwd(resolvedCwd, policy);
 

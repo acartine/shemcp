@@ -14,7 +14,7 @@ Independent agentic coding without handing over the keys to the castle.  Stop ge
 - **🆕 Spill File Management**: Large outputs are automatically written to temporary files with `spill_uri` for safe, paginated reading
 - **🆕 New `read_file_chunk` Tool**: Read paginated data from spilled files using `cursor` and `limit_bytes` for safe streaming
 - Sandbox root now resolves to the Git repository root by default (fallback to the current working directory), with optional overrides via `SHEMCP_ROOT` or `MCP_SANDBOX_ROOT`.
-- Removed the `shell_set_cwd` tool; `shell_exec` cwd must be RELATIVE to the sandbox root. Absolute paths are rejected with clear error messages that include the received path and the sandbox root.
+- Removed the `shell_set_cwd` tool; `shell_exec` cwd can be relative to the sandbox root, or an absolute path within the sandbox or a valid git worktree.
 - Added `shell_info` tool for introspection (reports `sandbox_root` and resolves relative `cwd` inputs, including `within_sandbox` checks).
 - Hardened `ensureCwd` with `realpath` and boundary checks to prevent symlink escapes and ensure directory accessibility.
 - Updated docs and tests to reflect the new behavior.
@@ -31,9 +31,9 @@ To avoid the sandbox accidentally shrinking to a nested subdirectory, shemcp der
 2) Nearest Git repository root discovered from the agent's process.cwd()
 3) process.cwd() as a final fallback
 
-The chosen root remains fixed for the duration of the process. All working directories for command execution must be specified as relative paths inside this sandbox; absolute paths are rejected.
+The chosen root remains fixed for the duration of the process. Working directories for command execution can be relative paths inside this sandbox, or absolute paths within the sandbox or a valid git worktree.
 
-- shell_exec optionally accepts a cwd that must be RELATIVE to the sandbox root; absolute paths are rejected.
+- shell_exec optionally accepts a cwd that can be relative to the sandbox root, or an absolute path within the sandbox or a valid git worktree.
 
 This ensures that if the client happens to start the agent several levels deep, the sandbox still resolves to the project root (typically the Git root), preventing the MCP from becoming unable to access sibling paths in the repository.
 
@@ -46,7 +46,7 @@ You can explicitly override the root for special cases with SHEMCP_ROOT or MCP_S
 - **🚫 Command Denylisting**: Explicitly block dangerous command patterns
 - **📁 Sandboxed to Project Root**: Commands run within the Git repository root by default (fallback to current working directory). Override with `SHEMCP_ROOT` or `MCP_SANDBOX_ROOT`.
 - **🌿 Git Worktree Support**: Automatically detects and allows access to git worktrees (sibling directories created via `git worktree add`)
-- **🛡️ Hardened Path Enforcement**: `cwd` must be relative; absolute paths are rejected. Realpath boundary checks prevent symlink escapes.
+- **🛡️ Hardened Path Enforcement**: `cwd` can be relative or absolute within sandbox/worktree boundaries. Realpath boundary checks prevent symlink escapes.
 - **🌍 Environment Filtering**: Only pass through safe environment variables
 - **⏱️ Resource Limits**: Configurable timeouts and output size caps
 - **📄 Pagination Support**: Handle large command outputs with configurable `limit_bytes` and `limit_lines`
@@ -58,7 +58,7 @@ You can explicitly override the root for special cases with SHEMCP_ROOT or MCP_S
 The server implements multiple layers of security:
 
 1. **Command Validation**: Commands must match allowlist patterns and not match denylist patterns
-2. **Directory Sandboxing**: Commands can only run within the sandbox root (Git repository root by default; fallback to CWD). `cwd` must be relative to the sandbox root; absolute paths are rejected. Override via `SHEMCP_ROOT` or `MCP_SANDBOX_ROOT`.
+2. **Directory Sandboxing**: Commands can only run within the sandbox root (Git repository root by default; fallback to CWD) or valid git worktrees. `cwd` can be relative or absolute within these boundaries. Override root via `SHEMCP_ROOT` or `MCP_SANDBOX_ROOT`.
 3. **Environment Isolation**: Sensitive environment variables are filtered out
 4. **Resource Limits**: Prevent runaway processes with timeouts and output limits
 
@@ -96,7 +96,7 @@ Execute an allow-listed command inside the sandbox with support for pagination a
 **Parameters:**
 - `cmd` (required): Command to run (e.g., "git", "npm", "python")
 - `args`: Array of string arguments (e.g., ["status", "--short"])
-- `cwd`: Optional working directory relative to the sandbox root (no absolute paths)
+- `cwd`: Optional working directory (relative to sandbox root, or absolute path within sandbox/worktree)
 - `timeout_ms`: Command timeout in milliseconds (deprecated, use `timeout_seconds`)
 - `timeout_seconds`: Command timeout in seconds (1-300, clamped to policy limits)
 - `max_output_bytes`: Maximum output size in bytes (1000-10M, clamped to policy limits)
@@ -108,8 +108,8 @@ Execute an allow-listed command inside the sandbox with support for pagination a
 
 **Rules:**
 - A `page` object must be supplied; otherwise the request is rejected with `Error: pagination parameters are required`
-- `cwd` must be RELATIVE to the sandbox root
-- Absolute paths are rejected with an error that includes the received path and the sandbox root
+- `cwd` can be relative to sandbox root, or an absolute path within the sandbox or a valid git worktree
+- Paths outside the sandbox/worktree boundaries are rejected with a clear error message
 - Large outputs (>limit_bytes or >limit_lines) are handled according to `on_large_output` mode
 
 **Response Format:**

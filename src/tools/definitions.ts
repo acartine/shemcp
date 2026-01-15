@@ -4,13 +4,13 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 export const tools: Tool[] = [
   {
     name: "shell_exec",
-    description: "Execute an allow-listed command within the sandbox (git project root). Optional cwd must be RELATIVE to the sandbox root. Supports pagination via limit_bytes and next_cursor (page and cursor are required for pagination). Automatically spills large outputs to file with spill_uri.",
+    description: "Execute an allow-listed command within the sandbox (git project root). Optional cwd must be a relative path from the sandbox root, or an absolute path within the sandbox or a valid git worktree. Supports pagination via limit_bytes and next_cursor (page and cursor are required for pagination). Automatically spills large outputs to file with spill_uri.",
     inputSchema: {
       type: "object",
       properties: {
         cmd: { type: "string", minLength: 1, description: "The command to execute (e.g., 'git', 'npm', 'python')" },
         args: { type: "array", items: { type: "string" }, default: [], description: "Command arguments as an array of strings (e.g., ['status', '--short'])" },
-        cwd: { type: "string", description: "Relative path from sandbox root (no absolute paths)" },
+        cwd: { type: "string", description: "Relative path from sandbox root, or absolute path within the sandbox or a valid git worktree" },
         // Deprecated: prefer timeout_seconds; kept for backward-compat
         timeout_ms: { type: "number", minimum: 1, maximum: 300000, description: "Command timeout in milliseconds (deprecated, use timeout_seconds instead)" },
         // New optional per-request overrides
