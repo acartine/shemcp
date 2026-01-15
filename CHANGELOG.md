@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.0
+
+### Minor Changes
+
+- [`5215b04`](https://github.com/acartine/shemcp/commit/5215b04235b902e73420bbb6b2313e8870f0abfd) Thanks [@acartine](https://github.com/acartine)! - Allow absolute paths within sandbox and worktree boundaries. Previously, shell_exec rejected all absolute cwd paths with an error. Now absolute paths are accepted if they resolve within the sandbox root or a valid git worktree, enabling better support for workflows where agents work with absolute paths. Also adds zstd to the default command allowlist.
+
 ## 0.17.0
 
 ### Minor Changes
