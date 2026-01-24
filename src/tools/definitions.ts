@@ -12,9 +12,9 @@ export const tools: Tool[] = [
         args: { type: "array", items: { type: "string" }, default: [], description: "Command arguments as an array of strings (e.g., ['status', '--short'])" },
         cwd: { type: "string", description: "Relative path from sandbox root, or absolute path within the sandbox or a valid git worktree" },
         // Deprecated: prefer timeout_seconds; kept for backward-compat
-        timeout_ms: { type: "number", minimum: 1, maximum: 300000, description: "Command timeout in milliseconds (deprecated, use timeout_seconds instead)" },
+        timeout_ms: { type: "number", minimum: 1, maximum: 600000, description: "Command timeout in milliseconds (deprecated, use timeout_seconds instead)" },
         // New optional per-request overrides
-        timeout_seconds: { type: "number", minimum: 1, maximum: 300, description: "Command timeout in seconds (1-300, will be clamped to policy limits)" },
+        timeout_seconds: { type: "number", minimum: 1, maximum: 600, description: "Command timeout in seconds (1-600, will be clamped to policy limits)" },
         max_output_bytes: { type: "number", minimum: 1000, maximum: 10000000, description: "Maximum output size in bytes (1000-10M, will be clamped to policy limits)" },
         page: {
           type: "object",

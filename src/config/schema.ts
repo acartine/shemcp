@@ -22,7 +22,7 @@ export const ConfigSchema = z.object({
   }).default({}),
 
   limits: z.object({
-    timeout_seconds: z.number().int().min(1).max(300).default(60),
+    timeout_seconds: z.number().int().min(1).max(600).default(600),
     max_output_bytes: z.number().int().min(1000).max(10_000_000).default(2_000_000),
   }).default({}),
 
@@ -67,7 +67,7 @@ export const DEFAULT_CONFIG: Config = {
     ],
   },
   limits: {
-    timeout_seconds: 60,
+    timeout_seconds: 600,
     max_output_bytes: 2_000_000,
   },
   environment: {

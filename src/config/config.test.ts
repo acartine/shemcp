@@ -82,7 +82,7 @@ describe('Configuration System', () => {
     it('should have secure default limits', () => {
       const defaults = DEFAULT_CONFIG;
       
-      expect(defaults.limits.timeout_seconds).toBeLessThanOrEqual(300);
+      expect(defaults.limits.timeout_seconds).toBeLessThanOrEqual(600);
       expect(defaults.limits.max_output_bytes).toBeLessThanOrEqual(10_000_000);
       expect(defaults.limits.max_output_bytes).toBeGreaterThanOrEqual(1000);
     });

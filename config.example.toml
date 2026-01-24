@@ -21,45 +21,61 @@ name = "shemcp"  # Server identity shown to MCP clients; version comes from pack
 [commands]
 # Regular expressions for allowed commands (case insensitive)
 allow = [
+    "^awk(\\s|$)",
     "^aws(\\s|$)",
     "^az(\\s|$)",
-    "^cat(\\s|$)",         # Display file contents
+    "^bd(\\s|$)",
+    "^cat(\\s|$)",
     "^cd(\\s|$)",
-    "^cwd(\\s|$)",         # Change/query working directory (custom)
-    "^curl(\\s|$)",        # HTTP client
-    "^echo(\\s|$)",        # Echo text
-    "^find(\\s|$)",        # Find files
+    "^chmod(\\s|$)",
+    "^claude(\\s|$)",
+    "^codex(\\s|$)",
+    "^cwd(\\s|$)",
+    "^curl(\\s|$)",
+    "^cut(\\s|$)",
+    "^date(\\s|$)",
+    "^docker(\\s|$)",
+    "^echo(\\s|$)",
+    "^find(\\s|$)",
     "^for(\\s|$)",
-    "^gh(\\s|$)",          # GitHub CLI
-    "^git(\\s|$)",         # Git commands
+    "^gh(\\s|$)",
+    "^git(\\s|$)",
     "^go(\\s|$)",
-    "^grep(\\s|$)",        # Search text
-    "^head(\\s|$)",        # Show file beginning
-    "^ls(\\s|$)",          # List files
-    "^make(\\s|$)",        # Make build tool
+    "^grep(\\s|$)",
+    "^gt(\\s|$)",
+    "^head(\\s|$)",
+    "^jq(\\s|$)",
+    "^ls(\\s|$)",
+    "^make(\\s|$)",
     "^mkdir(\\s|$)",
     "^node(\\s|$)",
-    "^npm(\\s|$)",         # Node package manager
+    "^npm(\\s|$)",
     "^npx(\\s|$)",
     "^nslookup(\\s|$)",
     "^openssl(\\s|$)",
     "^poetry(\\s|$)",
     "^ps(\\s|$)",
-    "^pwd(\\s|$)",         # Print working directory
+    "^psql(\\s|$)",
+    "^pwd(\\s|$)",
     "^python(\\s|$)",
     "^python3(\\s|$)",
+    "^rg(\\s|$)",
+    "^sed(\\s|$)",
     "^sleep(\\s|$)",
-    "^tail(\\s|$)",        # Show file end
-    "^task(\\s|$)",        # Task runner
+    "^tail(\\s|$)",
+    "^task(\\s|$)",
     "^terraform(\\s|$)",
     "^test(\\s|$)",
     "^timeout(\\s|$)",
     "^tsc(\\s|$)",
     "^unzip(\\s|$)",
-    "^wget(\\s|$)",        # Web downloader
-    "^yarn(\\s|$)",        # Yarn package manager
+    "^uv(\\s|$)",
+    "^wc(\\s|$)",
+    "^wget(\\s|$)",
+    "^which(\\s|$)",
+    "^yarn(\\s|$)",
     "^zip(\\s|$)",
-    "^zstd(\\s|$)",        # Zstandard compression
+    "^zstd(\\s|$)",
 ]
 
 # Regular expressions for explicitly denied commands (checked after allow list)
@@ -71,8 +87,8 @@ deny = [
 ]
 
 [limits]
-# Maximum time per command (1-300 seconds)
-timeout_seconds = 60
+# Maximum time per command (1-600 seconds)
+timeout_seconds = 600
 
 # Maximum output size per stream in bytes (1KB - 10MB)
 max_output_bytes = 2000000
@@ -90,7 +106,8 @@ whitelist = [
     "LANG",
     "LC_ALL",
     "TERM",
-    "SHELL"
+    "SHELL",
+    "GT_ROOT"
 ]
 
 [security]

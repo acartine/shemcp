@@ -98,7 +98,7 @@ Execute an allow-listed command inside the sandbox with support for pagination a
 - `args`: Array of string arguments (e.g., ["status", "--short"])
 - `cwd`: Optional working directory (relative to sandbox root, or absolute path within sandbox/worktree)
 - `timeout_ms`: Command timeout in milliseconds (deprecated, use `timeout_seconds`)
-- `timeout_seconds`: Command timeout in seconds (1-300, clamped to policy limits)
+- `timeout_seconds`: Command timeout in seconds (1-600, clamped to policy limits)
 - `max_output_bytes`: Maximum output size in bytes (1000-10M, clamped to policy limits)
 - `page` (required): Pagination configuration object:
   - `cursor`: Opaque position marker (e.g., "bytes:0")

@@ -36,7 +36,7 @@ describe('MCP Shell Server', () => {
     it('should create correct policy from default config', () => {
       // In test environment, homedir is mocked to return '/home/testuser'
       expect(testPolicy.rootDirectory).toBe('/home/testuser');
-      expect(testPolicy.timeoutMs).toBe(60_000);
+      expect(testPolicy.timeoutMs).toBe(600_000);
       expect(testPolicy.maxBytes).toBe(2_000_000);
     });
 
