@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.19.0
+
+### Minor Changes
+
+- [`d90f343`](https://github.com/acartine/shemcp/commit/d90f34340b6c0c4e3204b29d0af968efe8e3c25d) Thanks [@acartine](https://github.com/acartine)! - Increase timeout limits (max: 300s -> 600s, default: 60s -> 600s) to support long-running remote calls, expand default allow list with additional commonly used commands (awk, chmod, claude, codex, docker, jq, psql, rg, sed, uv, wc, which, and others), and add GT_ROOT to the environment whitelist
+
 ## 0.18.0
 
 ### Minor Changes
