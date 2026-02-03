@@ -85,7 +85,7 @@ The log captures:
 - **Allowed Commands**: git, gh, make, grep, sed, jq, aws, az, bash -lc
 - **Denied Patterns**: git push to main/master branches  
 - **Root Directory**: Git repository root by default (fallback to process.cwd()). Override via `SHEMCP_ROOT` or `MCP_SANDBOX_ROOT`.
-- **Timeout**: 60 seconds per command
+- **Timeout**: 600 seconds per command
 - **Max Output**: 2MB per stream (stdout/stderr)
 
 ## Commands
@@ -300,7 +300,7 @@ allow = ["^git(\\s|$)", "^npm(\\s|$)", "^make(\\s|$)"]
 deny = ["^git\\s+push\\s+(origin\\s+)?(main|master)"]
 
 [limits]
-timeout_seconds = 60
+timeout_seconds = 600
 max_output_bytes = 2000000
 
 [environment]
