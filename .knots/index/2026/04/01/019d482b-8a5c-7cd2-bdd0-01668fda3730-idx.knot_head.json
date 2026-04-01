@@ -1,0 +1,21 @@
+{
+  "event_id": "019d482b-8a5c-7cd2-bdd0-01668fda3730",
+  "occurred_at": "2026-04-01T08:31:46.268128Z",
+  "type": "idx.knot_head",
+  "data": {
+    "blocked_from_state": null,
+    "deferred_from_state": null,
+    "gate": {
+      "owner_kind": "agent"
+    },
+    "invariants": [],
+    "knot_id": "shemcp-52c5",
+    "profile_id": "autopilot",
+    "state": "ready_for_planning",
+    "terminal": false,
+    "title": "remove auto changeset release, replace it with manual process",
+    "type": "work",
+    "updated_at": "2026-04-01T08:31:46.268128Z",
+    "workflow_id": "compatibility"
+  }
+}
