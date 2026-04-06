@@ -21,6 +21,7 @@ name = "shemcp"  # Server identity shown to MCP clients; version comes from pack
 [commands]
 # Regular expressions for allowed commands (case insensitive)
 allow = [
+    "^--help(\\s|$)",
     "^awk(\\s|$)",
     "^aws(\\s|$)",
     "^az(\\s|$)",
